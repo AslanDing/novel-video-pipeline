@@ -2,8 +2,9 @@
 
 1. 重新设计一下架构
 2. 将 软件与llm, 文生图等功能分离，图文生视频，音频生成等功能分离，拆分成api
-3. 使用现有一些平台Stable Diffusion (DrawThings API)，IndexTTS2 (Voice cloning)，Aegisub / SRT，CapCut (Draft Generation) / FFmpeg
-4. 模型选择：
+3. 将prompt 从代码里面分离出来
+4. 使用现有一些平台Stable Diffusion (DrawThings API)，IndexTTS2 (Voice cloning)，Aegisub / SRT，CapCut (Draft Generation) / FFmpeg
+5. 模型选择：
     - LLM: Qwen3-30B-A3B-Instruct-2507/Qwen3-14B/gemma4
     - 文生图：Stable Diffusion (DrawThings API)/z-image-turbo
     - TTS: IndexTTS2 (Voice cloning)/qwen-audio
