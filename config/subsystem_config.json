@@ -1,0 +1,63 @@
+{
+  "shuangdian_system": {
+    "description": "爽点系统配置",
+    "types": [
+      {"id": "dalian", "name": "打脸", "description": "当众打脸、身份反转"},
+      {"id": "upgrade", "name": "升级", "description": "境界突破、技能觉醒"},
+      {"id": "harvest", "name": "收获", "description": "意外传承、天材地宝"},
+      {"id": "reverse", "name": "反转", "description": "身份揭露、阴谋识破"}
+    ],
+    "intensity_levels": [
+      {"id": "low", "value": 1, "description": "轻度爽点"},
+      {"id": "medium", "value": 3, "description": "中度爽点"},
+      {"id": "high", "value": 5, "description": "重度爽点"},
+      {"id": "extreme", "value": 8, "description": "极致爽点"}
+    ],
+    "pacing": {
+      "description": "爽点节奏分布配置",
+      "first_chapter_shuangdian": "dalian",
+      "every_n_chapters": 3,
+      "climax_chapters": [5, 10, 15, 20, 25, 30]
+    }
+  },
+  "rhythm_controller": {
+    "description": "章节节奏控制器配置",
+    "templates": [
+      {"id": "standard", "name": "标准节奏", "description": "开场-发展-高潮-结尾"},
+      {"id": "climax", "name": "高潮节奏", "description": "快速推进、爽点密集"},
+      {"id": "transition", "name": "过渡节奏", "description": "平缓推进、承上启下"},
+      {"id": "opening", "name": "开篇节奏", "description": "悬念引入、金手指展示"},
+      {"id": "ending", "name": "结局节奏", "description": "收束全文、埋下伏笔"}
+    ],
+    "chapter_length_rules": {
+      "short": {"min": 2000, "max": 4000},
+      "medium": {"min": 4000, "max": 8000},
+      "long": {"min": 8000, "max": 15000}
+    }
+  },
+  "quality_controller": {
+    "description": "质量控制器配置",
+    "thresholds": {
+      "min_word_count": 1000,
+      "min_quality_score": 5.0,
+      "max_retry": 3
+    },
+    "evaluation_dimensions": [
+      {"id": "shuangdian_score", "name": "爽点密度", "weight": 0.3},
+      {"id": "coherence_score", "name": "连贯性", "weight": 0.3},
+      {"id": "readability_score", "name": "可读性", "weight": 0.4}
+    ]
+  },
+  "context_manager": {
+    "description": "上下文管理器配置",
+    "max_context_tokens": 8000,
+    "summary_trigger_words": 500,
+    "compression_ratio": 0.5
+  },
+  "consistency_checker": {
+    "description": "一致性检查器配置",
+    "check_character_appearance": true,
+    "check_world_rules": true,
+    "check_power_system": true
+  }
+}

@@ -1,0 +1,79 @@
+# ============================================
+# AI爽文小说创作平台 - 依赖包
+# ============================================
+
+# ----- 核心依赖 -----
+python>=3.8
+aiohttp>=3.8.0          # 异步HTTP客户端（用于NVIDIA NIM API）
+asyncio>=3.4.3          # 异步IO支持
+
+# ----- 图像生成（可选） -----
+torch>=2.0.0            # PyTorch深度学习框架
+torchvision>=0.15.0     # PyTorch视觉库
+diffusers>=0.20.0       # HuggingFace扩散模型库
+transformers>=5.3.0    # HuggingFace transformers
+taccelerate>=0.20.0     # 加速库
+safetensors>=0.3.0      # 安全tensor格式
+
+# 可选：ControlNet, LoRA支持
+# controlnet-aux>=0.4.0
+# peft>=0.4.0
+
+# ----- 音频/TTS（可选） -----
+edge-tts>=6.1.0         # 微软Edge TTS（免费在线TTS）
+# 备选TTS（需额外安装）：
+# TTS>=0.20.0           # Coqui TTS
+# bark>=0.0.1           # Bark TTS
+# ChatTTS               # ChatTTS（需单独安装）
+
+# ----- 视频合成（必需） -----
+# FFmpeg需要单独安装系统包
+# Ubuntu/Debian: sudo apt-get install ffmpeg
+# macOS: brew install ffmpeg
+# Windows: 下载FFmpeg并添加到PATH
+
+# 可选的Python视频处理库
+# moviepy>=1.0.3        # MoviePy视频编辑（与FFmpeg二选一）
+# pydub>=0.25.1         # 音频处理
+
+# ----- 图像处理 -----
+Pillow>=10.0.0        # PIL图像处理库
+# opencv-python>=4.8.0  # OpenCV（可选）
+# imageio>=2.31.0       # 图像IO（可选）
+
+# ----- 工具库 -----
+python-dotenv>=1.0.0  # 环境变量管理
+pyyaml>=6.0           # YAML解析
+tqdm>=4.65.0          # 进度条
+colorama>=0.4.6       # 彩色终端输出（Windows）
+rich>=13.0.0          # 富文本终端输出（可选）
+
+# ----- 开发/测试 -----
+pytest>=7.4.0         # 测试框架（开发用）
+pytest-asyncio>=0.21.0  # 异步测试
+black>=23.0.0         # 代码格式化
+flake8>=6.0.0         # 代码检查
+
+# ============================================
+# 安装说明
+# ============================================
+#
+# 1. 基础安装（必需）：
+#    pip install -r requirements.txt
+#
+# 2. 完整安装（含图像生成）：
+#    pip install torch torchvision diffusers transformers
+#    pip install -r requirements.txt
+#
+# 3. Ubuntu/Debian系统依赖：
+#    sudo apt-get update
+#    sudo apt-get install ffmpeg libsm6 libxext6
+#
+# 4. macOS系统依赖：
+#    brew install ffmpeg
+#
+# 5. Windows：
+#    下载FFmpeg并添加到PATH
+#    https://ffmpeg.org/download.html
+#
+# ============================================
