@@ -68,10 +68,10 @@ LLM_GLOBAL_CONFIG = {
 }
 
 # ========== NVIDIA NIM LLM配置 ==========
-# 请在环境变量中设置或在此处填写
+# 请在环境变量中设置 NVIDIA_NIM_API_KEY
 NVIDIA_NIM_CONFIG = {
     "base_url": os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"), # /chat/completions
-    "api_key": os.getenv("NVIDIA_NIM_API_KEY", "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"),
+    "api_key": os.getenv("NVIDIA_NIM_API_KEY"),  # 必须设置环境变量，不提供默认值
     "model": os.getenv("NVIDIA_NIM_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
     # openai/gpt-oss-120b
     # nvidia/nemotron-3-super-120b-a12b
@@ -313,3 +313,19 @@ def load_subsystem_config() -> Dict:
 def get_llm_max_tokens(stage: str) -> int:
     """获取指定阶段的max_tokens"""
     return LLM_GLOBAL_CONFIG.get("max_tokens_per_stage", {}).get(stage, LLM_GLOBAL_CONFIG.get("max_tokens", 4096))
+
+
+def load_prompts() -> Dict:
+    """加载提示词配置"""
+    import json
+    prompts_path = PROJECT_ROOT / "config" / "prompts.json"
+    try:
+        if prompts_path.exists():
+            with open(prompts_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        else:
+            print(f"警告: 提示词文件不存在: {prompts_path}")
+            return {}
+    except Exception as e:
+        print(f"警告: 加载提示词失败: {e}")
+        return {}

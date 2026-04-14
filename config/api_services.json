@@ -1,0 +1,48 @@
+{
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 9000,
+    "internal_token": "change-me-in-production",
+    "outputs_dir": "outputs",
+    "log_level": "info"
+  },
+  "backends": {
+    "llm": {
+      "type": "llama_cpp",
+      "base_url": "http://localhost:8080/v1",
+      "model": "qwen3-14b",
+      "timeout_seconds": 300,
+      "max_retries": 3
+    },
+    "image": {
+      "type": "comfyui",
+      "base_url": "http://localhost:8188",
+      "default_workflow": "t2i_flux",
+      "timeout_seconds": 120,
+      "client_id": "novel-video-pipeline"
+    },
+    "video": {
+      "type": "comfyui",
+      "base_url": "http://localhost:8188",
+      "default_workflow": "i2v_wan",
+      "timeout_seconds": 600,
+      "client_id": "novel-video-pipeline"
+    },
+    "tts": {
+      "type": "fish_audio",
+      "api_key": "",
+      "base_url": "https://api.fish.audio",
+      "ws_url": "wss://api.fish.audio/v1/tts",
+      "default_voice_id": "",
+      "default_format": "mp3",
+      "timeout_seconds": 60
+    },
+    "bgm": {
+      "type": "ace_step",
+      "model_path": "models/sound/ace-step-v1.5",
+      "device": "cuda",
+      "default_duration_seconds": 30,
+      "timeout_seconds": 180
+    }
+  }
+}

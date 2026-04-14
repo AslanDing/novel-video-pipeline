@@ -1,0 +1,14 @@
+# 修炼体系生成提示词
+prompt: |
+  请为以下小说设计修炼体系。
+
+  小说类型: {genre}
+  世界设定: {world_building}
+
+  请输出以下JSON格式:
+  {{
+      "power_system": "修炼体系、力量等级划分及其核心逻辑",
+      "cultivation_realms": [
+          {{"name": "境界名称", "description": "境界描述", "level": 1}}
+      ]
+  }}

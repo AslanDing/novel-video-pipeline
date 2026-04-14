@@ -1,0 +1,16 @@
+# 情节结构生成提示词
+prompt: |
+  请为以下小说设计情节结构。
+
+  小说标题: {title}
+  世界设定: {world_building}
+  主要角色: {characters}
+
+  请生成{total_chapters}章的情节结构，每章包含:
+  - chapter: 起始章节号
+  - description: 该阶段的核心冲突和情节发展
+  - shuangdian_type: 主要爽点类型（如打脸、升级、奇遇、反转）
+  - intensity: 情感强度 (low, medium, high, extreme)
+
+  输出JSON格式:
+  {{"plot_structure": [...]}}

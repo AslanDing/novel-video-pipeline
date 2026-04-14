@@ -1,0 +1,6 @@
+# 场景生成提示词
+prompt: |
+  {shot_type} of {scene_name}, {context}
+
+  fantasy world, cinematic lighting, high detail, 8k,
+  epic scale, atmospheric

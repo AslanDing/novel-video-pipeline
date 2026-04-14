@@ -1,0 +1,23 @@
+# 分镜列表生成提示词
+prompt: |
+  请分析以下章节内容，生成分镜列表。
+
+  章节标题: {chapter_title}
+  章节内容:
+  {chapter_content}
+
+  角色列表:
+  {characters}
+
+  请将内容拆分为多个镜头，每个镜头包含:
+  - role: "dialogue" 或 "narrator"
+  - speaker: 说话人名称
+  - text: 需要朗读的文本
+  - emotion: 情感标签 (neutral, happy, sad, angry, fearful, excited, calm)
+  - visual_prompt: 英文画面描述
+  - motion_prompt: 镜头运动描述
+  - camera: 景别描述
+  - estimated_duration: 预估时长（秒）
+
+  输出JSON格式:
+  {{"shots": [...]}}
