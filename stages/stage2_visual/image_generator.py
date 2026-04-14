@@ -28,10 +28,10 @@ except ImportError:
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
-from config.settings import IMAGE_GENERATION, VIDEO_GENERATION, IMAGES_DIR, VIDEOS_DIR
 from core.base_pipeline import PipelineStage
 from core.logger import get_logger
-from stages.stage1_novel.novel_generator import Novel, Chapter, Character
+from stages.stage1_novel.models import Novel, Chapter, Character
+from config.settings import IMAGE_GENERATION, VIDEO_GENERATION, IMAGES_DIR, VIDEOS_DIR, load_prompts
 
 # 获取日志记录器
 logger = get_logger("image_generator")
@@ -192,6 +192,7 @@ class ImageGenerator(PipelineStage):
         self.svd_model = None
         self.device = None
         self.llm_client = NVIDIA_NIM_Client()
+        self.prompts = load_prompts().get("stage2", {})
         self.ipadapter = None
         self.character_consistency_enabled = False
         self.preprocessor = None  # 预处理器，用于从缓存加载 prompt
@@ -703,11 +704,16 @@ class ImageGenerator(PipelineStage):
         translate_to_english = self.config.get("translate_to_english", True)
         translated_appearance = appearance
         if translate_to_english and self.llm_client:
-            trans_prompt = f"Translate the following character appearance to English for an image generation prompt. Output ONLY the English translation without quotes or explanations:\n{appearance}"
+            template = self.prompts.get("portrait_translation_task", "")
+            if template:
+                trans_prompt = template.format(appearance=appearance)
+            else:
+                trans_prompt = f"Translate the following character appearance to English for an image generation prompt. Output ONLY the English translation without quotes or explanations:\n{appearance}"
+            
             try:
                 response = await self.llm_client.generate(
                     prompt=trans_prompt,
-                    system_prompt="You are a professional image prompt translator.",
+                    system_prompt=self.prompts.get("translation_system", "You are a professional image prompt translator."),
                     max_tokens=1000
                 )
                 if response and response.content:
@@ -754,8 +760,15 @@ class ImageGenerator(PipelineStage):
             return await self._extract_scenes_simple(chapter, num_scenes)
         
         # 使用LLM分析章节内容，生成分镜
-        prompt = f"""请分析以下小说章节，提取{num_scenes}个分镜。
-
+        template = self.prompts.get("scene_extraction_task", "")
+        if template:
+            prompt = template.format(
+                num_scenes=num_scenes,
+                title=chapter.title,
+                content=chapter.content[:3000]
+            )
+        else:
+            prompt = f"""请分析以下小说章节，提取{num_scenes}个分镜。
                     章节标题: {chapter.title}
                     章节内容:
                     {chapter.content[:3000]}...（后续省略）
@@ -787,17 +800,11 @@ class ImageGenerator(PipelineStage):
                             "characters_present": ["角色名1"],
                             "setting": "场景地点"
                         }}
-                    ]
-
-                    要求:
-                    1. 场景要有视觉冲击力，适合画成插画
-                    2. 描述要详细，包含环境、人物姿态、光影等
-                    3. 优先选择有爽点、冲突、转折的关键场景
-                    4. 合理选择镜头类型：远景(wide)展示环境，近景(close-up)展示表情"""
+                    ]"""
 
         response = await self.llm_client.generate(
             prompt=prompt,
-            system_prompt="你是专业的电影分镜师和视觉场景分析师，擅长从文字中提取画面感和设计分镜。",
+            system_prompt=self.prompts.get("scene_extraction_system", "你是专业的电影分镜师和视觉场景分析师，擅长从文字中提取画面感和设计分镜。"),
             max_tokens=4000,
         )
         

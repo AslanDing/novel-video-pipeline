@@ -99,6 +99,9 @@ class Character:
     goals: str
     background: str
     appearance: str
+    age: Optional[str] = None           # young, middle, old
+    gender: Optional[str] = None         # male, female
+    voice_type: Optional[str] = None    # narrator, protagonist, antagonist, etc.
 
     def to_dict(self) -> Dict:
         return {
@@ -110,6 +113,9 @@ class Character:
             "goals": self.goals,
             "background": self.background,
             "appearance": self.appearance,
+            "age": self.age,
+            "gender": self.gender,
+            "voice_type": self.voice_type,
         }
 
 

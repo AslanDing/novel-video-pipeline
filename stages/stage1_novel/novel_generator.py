@@ -19,7 +19,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from core.llm_client import NVIDIA_NIM_Client
 from core.local_llm_client import get_local_llm_client
 from core.base_pipeline import PipelineStage
-from config.settings import NOVELS_DIR, LOCAL_LLM_CONFIG, get_llm_max_tokens, load_subsystem_config
+from config.settings import NOVELS_DIR, LOCAL_LLM_CONFIG, get_llm_max_tokens, load_subsystem_config, load_prompts
 
 from stages.stage1_novel.models import (
     NovelConcept, StoryBlueprint, WorldBuilding, Character,
@@ -79,6 +79,10 @@ class NovelGenerator(PipelineStage):
         self.CHUNK_WORD_COUNT = 2000   # 每块目标字数（降低使 LLM 更容易写满）
         self.MAX_TOKENS_LIMIT = 128000  # 最大 tokens 上限
         self.MIN_TOKENS = 8000  # 最小 tokens
+
+        # 加载提示词
+        self.prompts = load_prompts()
+        self.stage1_prompts = self.prompts.get("stage1", {})
 
     def _calculate_max_tokens(self, target_word_count: int) -> int:
         """根据目标字数计算所需的 max_tokens"""
@@ -170,12 +174,12 @@ class NovelGenerator(PipelineStage):
                 shuangdian=shuangdian_plan.get(i),
             )
             
-            # --- 分镜脚本拆分 ---
-            print(f"   🎬 正在为第{i}章拆分分镜脚本...")
-            try:
-                chapter = await self._adapt_to_script(chapter, blueprint)
-            except Exception as e:
-                print(f"   ⚠️ 第{i}章分镜脚本拆分失败: {e}")
+            # --- 分镜脚本拆分已移动到 Stage 2 ---
+            # print(f"   🎬 正在为第{i}章拆分分镜脚本...")
+            # try:
+            #     chapter = await self._adapt_to_script(chapter, blueprint)
+            # except Exception as e:
+            #     print(f"   ⚠️ 第{i}章分镜脚本拆分失败: {e}")
 
             chapters.append(chapter)
 
@@ -498,17 +502,31 @@ class NovelGenerator(PipelineStage):
             characters_info += f"- {c.name}: {c.personality}\n"
 
         system_prompt = generate_protocol_prompt(NOVEL_WRITER_CORE, ChapterOutput)
-        task_description = (
-            f"请创作第{chapter_plan.number}章《{chapter_plan.title}》\n"
-            f"目标字数: {concept.target_word_count}字左右\n\n"
-            f"{characters_info}\n\n{context}\n\n"
-            f"本章规划:\n- 概要: {chapter_plan.summary}\n"
-            f"- 关键事件: {', '.join(chapter_plan.key_events)}\n"
-        )
-        if chapter_plan.shuangdian: 
-            task_description += f"- 爽点设计: {chapter_plan.shuangdian.description}\n"
         
-        task_description += "\n核心要求：请展开细节，增加生动的对话、环境描写和心理描写，使内容丰满。严禁简略概括情节。"
+        task_template = self.stage1_prompts.get("chapter_writer_task", "")
+        if task_template:
+            task_description = task_template.format(
+                number=chapter_plan.number,
+                title=chapter_plan.title,
+                target_words=concept.target_word_count,
+                characters=characters_info,
+                context=context,
+                summary=chapter_plan.summary,
+                key_events=', '.join(chapter_plan.key_events),
+                shuangdian=f"- 爽点设计: {chapter_plan.shuangdian.description}\n" if chapter_plan.shuangdian else ""
+            )
+        else:
+            task_description = (
+                f"请创作第{chapter_plan.number}章《{chapter_plan.title}》\n"
+                f"目标字数: {concept.target_word_count}字左右\n\n"
+                f"{characters_info}\n\n{context}\n\n"
+                f"本章规划:\n- 概要: {chapter_plan.summary}\n"
+                f"- 关键事件: {', '.join(chapter_plan.key_events)}\n"
+            )
+            if chapter_plan.shuangdian: 
+                task_description += f"- 爽点设计: {chapter_plan.shuangdian.description}\n"
+            
+            task_description += "\n核心要求：请展开细节，增加生动的对话、环境描写和心理描写，使内容丰满。严禁简略概括情节。"
 
         max_tokens = self._calculate_max_tokens(concept.target_word_count)
 
@@ -607,6 +625,23 @@ class NovelGenerator(PipelineStage):
     def _build_chunk_prompt(self, chapter_plan, context, index, total, is_last, prev):
         part_desc = "开头部分" if index == 0 else ("结尾部分" if is_last else f"中间第{index+1}部分")
         prev_excerpt = prev[-800:] if prev else "（本章第一段，无前文）"
+        
+        template = self.stage1_prompts.get("chunk_writer_task", "")
+        if template:
+            return template.format(
+                number=chapter_plan.number,
+                title=chapter_plan.title,
+                part_desc=part_desc,
+                index=index+1,
+                total=total,
+                chunk_words=self.CHUNK_WORD_COUNT,
+                summary=chapter_plan.summary,
+                key_events=', '.join(chapter_plan.key_events),
+                context=context,
+                prev_excerpt=prev_excerpt,
+                ending_instruction=('本段是最后一段，请写好反转或悬念收尾' if is_last else '本段不是结尾，不要做总结性收尾，保持叙事张力')
+            )
+
         return (
             f"请创作第{chapter_plan.number}章《{chapter_plan.title}》的{part_desc}（第{index+1}/{total}段）\n"
             f"目标字数: {self.CHUNK_WORD_COUNT}字左右\n\n"
@@ -621,218 +656,6 @@ class NovelGenerator(PipelineStage):
             f"- 严禁用概括语言跳跃情节，必须逐步展开每个场景"
         )
 
-    async def _adapt_to_script(self, chapter: Chapter, blueprint: StoryBlueprint) -> Chapter:
-        """分镜脚本拆分（增强版：支持长章节分块拆分）"""
-        # 设定每块处理的字数
-        chars_per_chunk = 2500
-        content = chapter.content
-        
-        # 如果长度超过阈值，进行分块
-        if len(content) <= chars_per_chunk + 500:
-            chunks = [content]
-        else:
-            # 简单按字数切分
-            chunks = []
-            for i in range(0, len(content), chars_per_chunk):
-                chunks.append(content[i:i + chars_per_chunk])
-        
-        all_script_lines = []
-        scene_counter = 1
-        
-        for i, chunk_content in enumerate(chunks):
-            if len(chunks) > 1:
-                print(f"      📦 正在处理分镜分块 {i+1}/{len(chunks)}...")
-            
-            # 对每个分块进行重试生成
-            max_retries = 3
-            chunk_lines = []
-            
-            for attempt in range(1, max_retries + 1):
-                try:
-                    # 调用带有内容片段的生成函数
-                    chunk_lines = await self._adapt_to_script_attempt_v2(
-                        chunk_content, 
-                        chapter.title, 
-                        blueprint, 
-                        start_scene_no=scene_counter,
-                        chunk_index=i,
-                        total_chunks=len(chunks)
-                    )
-                    if chunk_lines:
-                        break
-                except Exception as e:
-                    print(f"      ⚠️ 分块 {i+1} 尝试 {attempt} 失败: {e}")
-            
-            if chunk_lines:
-                all_script_lines.extend(chunk_lines)
-                scene_counter += len(chunk_lines)
-            else:
-                print(f"      ❌ 分块 {i+1} 最终生成失败")
-        
-        chapter.script_lines = all_script_lines
-        print(f"      ✅ 整章分镜拆解完成，共 {len(all_script_lines)} 个分镜")
-        return chapter
-
-    async def _adapt_to_script_attempt_v2(
-        self, 
-        content_chunk: str, 
-        chapter_title: str, 
-        blueprint: StoryBlueprint,
-        start_scene_no: int = 1,
-        chunk_index: int = 0,
-        total_chunks: int = 1
-    ) -> List[ScriptLine]:
-        """单次分块分镜脚本拆分尝试"""
-        system_prompt = generate_protocol_prompt(SCRIPT_ADAPTER_CORE, ScriptOutput)
-        char_info = "\n".join([f"{c.name}: {c.appearance}" for c in blueprint.characters])
-
-        part_desc = f"（第 {chunk_index+1}/{total_chunks} 部分）" if total_chunks > 1 else ""
-
-        prompt = (
-            f"你是顶尖的视觉艺术家和分镜编剧。请将小说章节《{chapter_title}》的文本片段{part_desc}拆分为极具画面感的【分镜脚本】。\n\n"
-            f"【角色视觉参考】:\n{char_info}\n\n"
-            f"【创作要求】:\n"
-            f"1. 数量限制：此片段生成 5-10 个分镜行。\n"
-            f"2. visual_prompt 必须是详细的英文，请按此结构撰写：\n"
-            f"   (Subject: 人物及姿态), (Action: 正在发生的动作), (Setting: 环境细节), (Lighting: 光影效果, 如 cinematic lighting, golden hour), (Composition: 构图方式, 如 rule of thirds, low angle), (Mood: 氛围描述)。\n"
-            f"3. 视觉质量：必须包含材质细节（如 skin texture, metallic shine）、环境特效（如 floating particles, mist）以及电影感描述。\n"
-            f"4. 角色一致性：请在每个涉及角色的分镜中，根据【角色视觉参考】重复提及角色的关键外貌特征。\n"
-            f"5. 镜头运动：在 motion_prompt 中精确描述摄像机如何移动，以增强动态感。\n"
-            f"6. 编号提示：此片段的起始场景编号建议从 SC_{start_scene_no:03d} 开始。\n\n"
-            f"【小说文本片段】:\n{content_chunk}"
-        )
-
-        result, _ = await robust_json_generate(
-            llm_client=self.llm_client,
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=get_llm_max_tokens("script"),
-            required_fields=["script"],
-            max_attempts=3,
-            response_format={"type": "json_object"}
-        )
-
-        if not result:
-            return []
-
-        # 增加鲁棒性
-        if isinstance(result, list):
-            result = {"script": result}
-        elif isinstance(result, dict) and "script" not in result and "scene_id" in result:
-            result = {"script": [result]}
-
-        try:
-            validated = ScriptOutput.model_validate(result)
-        except Exception as e:
-            print(f"      ⚠️ 解析 JSON 失败: {e}")
-            return []
-
-        script_lines = []
-        for i, item in enumerate(validated.script):
-            if not item.visual_prompt:
-                continue
-            
-            # 使用传入的起始编号重写 ID，防止不同块之间的 ID 冲突
-            current_no = start_scene_no + i
-            scene_id = f"SC_{current_no:03d}"
-            shot_id = f"{scene_id}_SH01"
-
-            script_lines.append(ScriptLine(
-                scene_id=scene_id,
-                shot_id=shot_id,
-                role=item.role,
-                speaker=item.speaker,
-                text=item.text,
-                emotion=item.emotion,
-                visual_prompt=item.visual_prompt,
-                motion_prompt=item.motion_prompt,
-                camera=item.camera,
-                estimated_duration=item.estimated_duration
-            ))
-
-        return script_lines
-
-    async def _adapt_to_script_attempt(self, chapter: Chapter, blueprint: StoryBlueprint) -> Chapter:
-        """单次分镜脚本拆分尝试"""
-        system_prompt = generate_protocol_prompt(SCRIPT_ADAPTER_CORE, ScriptOutput)
-        char_info = "\n".join([f"{c.name}: {c.appearance}" for c in blueprint.characters])
-
-        # 限制输入正文长度，防止章节过长时 token 爆炸
-        content_limit = 3000
-        content_excerpt = chapter.content[:content_limit]
-        if len(chapter.content) > content_limit:
-            content_excerpt += f"\n\n[正文较长，以上为前{content_limit}字，后续省略]"
-
-        # prompt = (
-        #     f"请将小说章节《{chapter.title}》拆分为分镜脚本。\n"
-        #     f"限制：整章最多生成 25 个分镜行，每个分镜的 visual_prompt 必须用英文填写。\n\n"
-        #     f"角色参考:\n{char_info}\n\n"
-        #     f"章节正文:\n{content_excerpt}"
-        # )
-
-        prompt = (
-            f"你是顶尖的视觉艺术家和分镜编剧。请将小说章节《{chapter.title}》拆分为极具画面感的【分镜脚本】。\n\n"
-            f"【角色视觉参考】:\n{char_info}\n\n"
-            f"【创作要求】:\n"
-            f"1. 数量限制：整章生成 15-25 个分镜行。\n"
-            f"2. visual_prompt 必须是详细的英文，请按此结构撰写：\n"
-            f"   (Subject: 人物及姿态), (Action: 正在发生的动作), (Setting: 环境细节), (Lighting: 光影效果, 如 cinematic lighting, golden hour), (Composition: 构图方式, 如 rule of thirds, low angle), (Mood: 氛围描述)。\n"
-            f"3. 视觉质量：必须包含材质细节（如 skin texture, metallic shine）、环境特效（如 floating particles, mist）以及电影感描述。\n"
-            f"4. 角色一致性：请在每个涉及角色的分镜中，根据【角色视觉参考】重复提及角色的关键外貌特征。\n"
-            f"5. 镜头运动：在 motion_prompt 中精确描述摄像机如何移动，以增强动态感。\n\n"
-            f"【本章正文】:\n{content_excerpt}"
-        )
-
-        result, _ = await robust_json_generate(
-            llm_client=self.llm_client,
-            prompt=prompt,
-            system_prompt=system_prompt,
-            max_tokens=get_llm_max_tokens("script"),
-            required_fields=["script"],
-            max_attempts=3,
-            response_format={"type": "json_object"}
-        )
-
-        if not result:
-            raise ValueError("分镜脚本生成失败")
-
-        # 增加鲁棒性：如果 result 是 list，说明 LLM 直接输出了数组
-        if isinstance(result, list):
-            result = {"script": result}
-        elif isinstance(result, dict) and "script" not in result and "scene_id" in result:
-            result = {"script": [result]}
-
-        validated = ScriptOutput.model_validate(result)
-
-        script_lines = []
-        skipped = 0
-        for item in validated.script:
-            # 过滤掉因截断产生的垃圾行（visual_prompt 为空代表该行不完整）
-            if not item.visual_prompt:
-                skipped += 1
-                continue
-            script_lines.append(ScriptLine(
-                scene_id=item.scene_id,
-                shot_id=item.shot_id,
-                role=item.role,
-                speaker=item.speaker,
-                text=item.text,
-                emotion=item.emotion,
-                visual_prompt=item.visual_prompt,
-                motion_prompt=item.motion_prompt,
-                camera=item.camera,
-                estimated_duration=item.estimated_duration
-            ))
-
-        if skipped:
-            print(f"      ⚠️ 过滤掉 {skipped} 个不完整分镜行（缺少 visual_prompt）")
-
-        if not script_lines:
-            raise ValueError(f"分镜脚本全部行无效（共{len(validated.script)}行均缺少 visual_prompt）")
-
-        chapter.script_lines = script_lines
-        print(f"      ✓ 成功生成 {len(script_lines)} 个分镜")
-        return chapter
 
 
 class NovelGenerationPipeline(PipelineStage):

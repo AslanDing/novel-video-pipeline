@@ -14,9 +14,12 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 from core.llm_client import NVIDIA_NIM_Client
 from core.local_llm_client import get_local_llm_client
-from config.settings import LOCAL_LLM_CONFIG
 from core.logger import get_logger, setup_logger
-from stages.stage1_novel.novel_generator import Novel, Chapter, Character
+from stages.stage1_novel.models import Novel, Chapter, Character, ScriptLine
+from stages.stage1_novel.pydantic_models import ScriptOutput
+from stages.stage1_novel.prompts.protocol_prompts import generate_protocol_prompt
+from utils.streaming_json_generator import robust_json_generate
+from config.settings import LOCAL_LLM_CONFIG, load_prompts, get_llm_max_tokens
 
 # 初始化日志
 logger = get_logger("preprocessor")
@@ -45,6 +48,10 @@ class Preprocessor:
             )
         else:
             self.llm_client = NVIDIA_NIM_Client()
+            
+        # 加载提示词
+        self.prompts = load_prompts()
+        self.stage2_prompts = self.prompts.get("stage2", {})
             
         self.translate_to_english = config.get("translate_to_english", True)
 
@@ -229,61 +236,84 @@ class Preprocessor:
 
     async def _extract_scenes_from_llm(self, chapter: Chapter, num_scenes: int) -> List[Dict]:
         """
-        从 LLM 提取场景
+        从 LLM 提取场景 - 现在整合了 Stage 1 的脚本分拆逻辑
         """
-        enable_storyboard = self.config.get("storyboard", {}).get("enabled", True)
+        logger.info(f"   🎬 正在为第{chapter.number}章生成分镜脚本...")
+        
+        # 角色信息
+        char_info = "\n".join([f"{c.name}: {c.appearance}" for c in self.novel.blueprint.characters])
+        
+        # 设定分块大小
+        chars_per_chunk = 2500
+        content = chapter.content
+        chunks = [content[i:i + chars_per_chunk] for i in range(0, len(content), chars_per_chunk)]
+        
+        all_script_lines = []
+        scene_counter = 1
+        
+        script_core = self.stage2_prompts.get("script_core", "你是一位专业的分镜编剧。")
+        system_prompt = generate_protocol_prompt(script_core, ScriptOutput)
+        task_template = self.stage2_prompts.get("script_adapter_task", "")
 
-        if not enable_storyboard:
-            return await self._extract_scenes_simple(chapter, num_scenes)
+        for i, chunk_content in enumerate(chunks):
+            part_desc = f"（第 {i+1}/{len(chunks)} 部分）" if len(chunks) > 1 else ""
+            
+            if task_template:
+                prompt = task_template.format(
+                    title=chapter.title,
+                    part_desc=part_desc,
+                    char_info=char_info,
+                    start_no=scene_counter,
+                    content=chunk_content
+                )
+            else:
+                prompt = (
+                    f"请将小说章节《{chapter.title}》的文本片段{part_desc}拆分为分镜脚本。\n\n"
+                    f"【角色视觉参考】:\n{char_info}\n\n"
+                    f"【创作要求】:\n"
+                    f"1. 数量限制：此片段生成 5-10 个分镜行。\n"
+                    f"2. visual_prompt 必须是英文。\n\n"
+                    f"【小说文本片段】:\n{chunk_content}"
+                )
 
-        # 使用 LLM 分析章节内容，生成分镜
-        prompt = f"""请分析以下小说章节，提取{num_scenes}个分镜。
-
-                    章节标题: {chapter.title}
-                    章节内容:
-                    {chapter.content[:3000]}...（后续省略）
-
-                    每个分镜需要包含:
-                    1. scene_number: 场景编号
-                    2. description: 场景描述
-                    3. shot_type: 镜头类型 (wide/medium/close-up/extreme close-up)
-                    4. camera_movement: 镜头运动 (static/pan/tilt/dolly/crane)
-                    5. composition: 构图 (centered/rule of thirds/leading lines)
-                    6. lighting: 光线 (natural/dramatic/soft)
-                    7. mood: 氛围 (tense/calm/dark/bright 等)
-                    8. key_elements: 关键元素列表
-                    9. characters_present: 出现的角色列表
-                    10. setting: 具体场景地点
-
-                    输出JSON格式:
-                    [
-                        {{
-                            "scene_number": 1,
-                            "description": "场景描述",
-                            "shot_type": "wide",
-                            "camera_movement": "static",
-                            "composition": "rule of thirds",
-                            "lighting": "dramatic",
-                            "mood": "tense",
-                            "key_elements": ["元素1", "元素2"],
-                            "characters_present": ["角色名1"],
-                            "setting": "场景地点"
-                        }}
-                    ]"""
-
-        try:
-            response = await self.llm_client.generate(
+            result, _ = await robust_json_generate(
+                llm_client=self.llm_client,
                 prompt=prompt,
-                system_prompt="你是专业的电影分镜师和视觉场景分析师，擅长从文字中提取画面感和设计分镜。",
-                max_tokens=4000,
+                system_prompt=system_prompt,
+                max_tokens=get_llm_max_tokens("script"),
+                required_fields=["script"],
+                max_attempts=3,
+                response_format={"type": "json_object"}
             )
 
-            # 解析 JSON
-            scenes = self._extract_json(response.content)
-            return scenes[:num_scenes]
-        except Exception as e:
-            logger.error(f"场景提取失败: {e}")
+            if result and (isinstance(result, list) or "script" in result):
+                script_data = result if isinstance(result, list) else result.get("script", [])
+                for j, item in enumerate(script_data):
+                    # 转换回 Dict 格式，兼容现有的 get_shots_as_scenes
+                    all_script_lines.append({
+                        "scene_id": f"SC_{scene_counter + j:03d}",
+                        "shot_id": f"SC_{scene_counter + j:03d}_SH01",
+                        "visual_prompt": item.get("visual_prompt", ""),
+                        "emotion": item.get("emotion", "neutral"),
+                        "camera": item.get("camera", "medium"),
+                        "motion_prompt": item.get("motion_prompt", ""),
+                        "text": item.get("text", ""),
+                        "speaker": item.get("speaker", ""),
+                        "estimated_duration": item.get("estimated_duration", 3.0)
+                    })
+                scene_counter += len(script_data)
+
+        if not all_script_lines:
+            logger.warning("LLM 未能生成任何脚本行，使用简单提取逻辑")
             return await self._extract_scenes_simple(chapter, num_scenes)
+
+        # 使用 ScriptAdapter 的逻辑转换为场景格式
+        from stages.stage2_visual.script_adapter import ScriptAdapter
+        adapter = ScriptAdapter(self.novel.metadata.get('title', ''), self.novel_dir / "data")
+        scenes = adapter.get_shots_as_scenes(all_script_lines)
+        
+        logger.info(f"      ✅ 分镜拆解完成，共 {len(scenes)} 个分镜")
+        return scenes
 
     async def _extract_scenes_simple(self, chapter: Chapter, num_scenes: int) -> List[Dict]:
         """简单场景提取"""
@@ -329,22 +359,11 @@ class Preprocessor:
                 for i in range(num_scenes)
             ]
 
-    async def build_prompt(self, scene: Dict, characters: List[Character],
+    async def build_prompt(self, scene_data: Dict, characters: List[Character],
                            chapter_number: int, scene_number: int, image_index: int,
                            force_refresh: bool = False) -> str:
         """
         构建 prompt（带缓存）
-
-        Args:
-            scene: 场景数据
-            characters: 角色列表
-            chapter_number: 章节编号
-            scene_number: 场景编号
-            image_index: 图像索引
-            force_refresh: 是否强制刷新缓存
-
-        Returns:
-            完整的 prompt 字符串
         """
         # 检查缓存
         if not force_refresh:
@@ -353,122 +372,69 @@ class Preprocessor:
                 logger.debug(f"使用缓存 prompt: 第{chapter_number}章 场景{scene_number}")
                 return cached["prompt"]
 
-        # 构建 prompt
-        logger.info(f"正在构建 prompt: 第{chapter_number}章 场景{scene_number}")
-        prompt = await self._build_image_prompt(scene, characters)
+        logger.debug(f"正在构建第{chapter_number}章 场景{scene_number} 的 prompt...")
+        
+        # 1. 优先使用场景数据中已有的英文 visual_prompt
+        # 这是 Stage 1 脚本适配器或新版 Preprocessor 生成的
+        if scene_data.get('visual_prompt'):
+            prompt = scene_data['visual_prompt']
+            self.save_prompt_cache(chapter_number, scene_number, image_index, scene_data, prompt)
+            return prompt
 
-        # 保存缓存
-        self.save_prompt_cache(chapter_number, scene_number, image_index, scene, prompt)
+        # 2. 如果只有 description，则需要翻译/构建
+        description = scene_data.get("description", "")
+        setting = scene_data.get("setting", "")
+        mood = scene_data.get("mood", "calm")
 
+        # 获取角色详情
+        char_details = []
+        for char_name in scene_data.get("characters_present", []):
+            char_obj = next((c for c in characters if c.name == char_name), None)
+            if char_obj:
+                char_details.append(f"{char_name}({char_obj.appearance})")
+            else:
+                char_details.append(char_name)
+
+        if self.translate_to_english:
+            prompt = await self._translate_description(description, setting, mood, char_details)
+        else:
+            prompt = f"{description}, {setting}, {mood}, {', '.join(char_details)}"
+
+        # 保存到缓存
+        self.save_prompt_cache(chapter_number, scene_number, image_index, scene_data, prompt)
         return prompt
 
-    async def _build_image_prompt(
-        self,
-        scene: Dict,
-        characters: List[Character],
-    ) -> str:
-        """
-        构建图像生成 prompt（与 image_generator.py 中的逻辑保持一致）
-        """
-        character_names = scene.get("characters_present", [])
-        base_description = scene.get("description", "")
-        mood = scene.get("mood", "dramatic")
-        setting = scene.get("setting", "")
-        shot_type = scene.get("shot_type")
-        composition = scene.get("composition")
-        lighting = scene.get("lighting")
-
-        # 翻译场景描述
-        if self.translate_to_english and (base_description or setting):
-            translation_prompt = f"""Translate the following Chinese scene description to English for AI image generation.
-                                Keep it concise but detailed enough for image generation.
-
-                                Scene: {base_description}
-                                Setting: {setting}
-                                Mood: {mood}
-
-                                Output ONLY the translated English text."""
-
-            try:
-                response = await self.llm_client.generate(
-                    prompt=translation_prompt,
-                    system_prompt="You are a professional translator.",
-                    max_tokens=2000,
-                )
-                translated_scene = response.content.strip() if response and response.content else base_description
-            except Exception as e:
-                logger.warning(f"翻译失败: {e}")
-                translated_scene = base_description
+    async def _translate_description(self, description, setting, mood, characters) -> str:
+        """调用 LLM 将中文描述翻译并润色为英文 Prompt"""
+        template = self.stage2_prompts.get("translation_task", "")
+        if template:
+            prompt = template.format(
+                description=description,
+                setting=setting,
+                mood=mood
+            )
         else:
-            translated_scene = base_description if not self.translate_to_english else ""
+            prompt = f"""Translate the following Chinese scene description to English for AI image generation. 
+                Keep it concise but detailed enough for image generation.
 
-        # 处理角色
-        character_prompts = []
-        for char_name in character_names:
-            for char in characters:
-                if char.name in char_name or char_name in char.name:
-                    appearance = char.appearance
+                Scene: {description}
+                Setting: {setting}
+                Mood: {mood}
+                Characters: {', '.join(characters)}
 
-                    if self.translate_to_english:
-                        char_prompt = f"Translate to English: {appearance}"
-                        try:
-                            response = await self.llm_client.generate(
-                                prompt=char_prompt,
-                                system_prompt="You are a professional translator.",
-                                max_tokens=2000,
-                            )
-                            translated = response.content.strip() if response and response.content else appearance
-                            character_prompts.append(f"{char.name}: {translated}")
-                        except:
-                            character_prompts.append(f"{char.name}: {appearance}")
-                    else:
-                        character_prompts.append(f"{char.name}: {appearance}")
-                    break
+                Output ONLY the translated English text."""
 
-        # 构建最终 prompt
-        if self.translate_to_english:
-            prompt_parts = [
-                # "masterpiece, best quality, highly detailed,",
-                " ",
-            ]
-            if translated_scene:
-                prompt_parts.append(f"scene: {translated_scene}")
-            if character_prompts:
-                prompt_parts.append("characters: " + "; ".join(character_prompts))
+        try:
+            response = await self.llm_client.generate(
+                prompt=prompt,
+                system_prompt="You are an expert at writing prompts for Stable Diffusion.",
+                max_tokens=500,
+            )
+            return response.content.strip()
+        except Exception as e:
+            logger.error(f"翻译失败: {e}")
+            return f"{description}, {setting}, {mood}"
 
-            mood_map = {
-                "紧张": "tense, dramatic",
-                "平静": "peaceful, calm",
-                "黑暗": "dark, mysterious",
-                "明亮": "bright, luminous",
-                "温馨": "warm, cozy",
-                "恐怖": "horror, terrifying",
-                "浪漫": "romantic",
-                "壮丽": "grand, majestic",
-            }
-            prompt_parts.append(f"atmosphere: {mood_map.get(mood, mood)}")
-
-            if setting:
-                prompt_parts.append(f"setting: {setting}")
-
-            if shot_type:
-                shot_map = {"wide": "wide shot", "medium": "medium shot", "close-up": "close-up shot"}
-                prompt_parts.append(shot_map.get(shot_type, shot_type))
-
-            # prompt_parts.extend(["fantasy art style, digital painting, 8k uhd,"])
-        else:
-            # prompt_parts = ["杰作，高质量，精细画面，"]
-            prompt_parts = [""]
-            if translated_scene:
-                prompt_parts.append(f"scene: {translated_scene}")
-            if character_prompts:
-                prompt_parts.append("characters: " + "; ".join(character_prompts))
-            prompt_parts.append(f"atmosphere: {mood}")
-            if setting:
-                prompt_parts.append(f"setting: {setting}")
-            # prompt_parts.extend(["幻想艺术风格，数字绘画，8K超高清，"])
-
-        return ", ".join(prompt_parts)
 
     def _extract_json(self, content: str) -> List[Dict]:
         """从文本中提取 JSON"""

@@ -8,6 +8,7 @@ from typing import List, Optional
 from stages.stage1_novel.models import (
     Chapter, StoryBlueprint, QualityScore
 )
+from config.settings import load_prompts
 
 
 class QualityController:
@@ -15,6 +16,7 @@ class QualityController:
 
     def __init__(self, llm_client=None):
         self.llm_client = llm_client
+        self.prompts = load_prompts().get("stage1", {})
 
     async def evaluate_chapter(
         self,
@@ -231,26 +233,28 @@ class QualityController:
         target_words = getattr(concept, 'target_word_count', 5000) if concept else 5000
         print(f"   🔧 正在重写第{chapter.number}章（目标{target_words}字），修复: {issues[:1]}...")
 
-        system_prompt = (
-            "你是一位顶级网文大神兼专业小说编辑。你的任务是将一篇较短的章节扩展为完整、丰富的长篇内容。\n"
-            "要求：\n"
-            "1. 保持原有核心情节和人物设定\n"
-            "2. 大幅展开每个场景，增加对话、心理活动、环境描写和动作细节\n"
-            "3. 不要用总结式语言跳过情节，每个场景都要完整呈现\n"
-            "4. 风格保持爽文节奏，但内容必须丰满"
-        )
-
-        prompt = (
-            f"请将以下章节扩展改写，目标字数: {target_words}字左右\n\n"
-            f"章节标题: {chapter.title}\n"
-            f"当前内容（需要扩展）:\n{chapter.content}\n\n"
-            f"需要改进的问题:\n"
-            + "\n".join(f"- {issue}" for issue in issues)
-            + f"\n\n请输出扩展后的完整章节（JSON格式）:\n"
-            + '{"title": "章节标题", "content": "扩展后的完整正文内容", '
-            + '"summary": "本章摘要", "key_events": ["关键事件1", "事件2"], '
-            + '"character_appearances": ["角色1", "角色2"]}'
-        )
+        system_prompt = self.prompts.get("rewrite_system", "你是一位顶级网文大神。")
+        
+        task_template = self.prompts.get("rewrite_task", "")
+        if task_template:
+            prompt = task_template.format(
+                target_words=target_words,
+                title=chapter.title,
+                content=chapter.content,
+                issues="\n".join(f"- {issue}" for issue in issues)
+            )
+        else:
+            prompt = (
+                f"请将以下章节扩展改写，目标字数: {target_words}字左右\n\n"
+                f"章节标题: {chapter.title}\n"
+                f"当前内容（需要扩展）:\n{chapter.content}\n\n"
+                f"需要改进的问题:\n"
+                + "\n".join(f"- {issue}" for issue in issues)
+                + f"\n\n请输出扩展后的完整章节（JSON格式）:\n"
+                + '{"title": "章节标题", "content": "扩展后的完整正文内容", '
+                + '"summary": "本章摘要", "key_events": ["关键事件1", "事件2"], '
+                + '"character_appearances": ["角色1", "角色2"]}'
+            )
 
         try:
             response = await self.llm_client.generate(
@@ -294,11 +298,12 @@ class QualityController:
             return await self.evaluate_chapter(chapter, blueprint, previous_chapters)
 
         prompt = self._build_llm_quality_prompt(chapter, blueprint, previous_chapters)
+        system_prompt = self.prompts.get("quality_check_system", "你是一位专业的小说编辑。")
 
         try:
             response = await self.llm_client.generate(
                 prompt=prompt,
-                system_prompt="你是一位专业的小说编辑和评论家。请客观评估小说章节的质量。",
+                system_prompt=system_prompt,
                 max_tokens=2000,
             )
 
@@ -326,6 +331,16 @@ class QualityController:
         chars_info = "主要角色:\n"
         for char in blueprint.characters[:3]:
             chars_info += f"- {char.name}: {char.personality[:50]}\n"
+
+        template = self.prompts.get("quality_check_task", "")
+        if template:
+            return template.format(
+                title=chapter.title,
+                word_count=chapter.word_count,
+                characters=chars_info,
+                prev_summary=prev_summary,
+                content=chapter.content[:5000]
+            )
 
         return f"""请评估以下小说章节的质量。
 

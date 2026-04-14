@@ -20,8 +20,11 @@ class CharacterSchema(BaseModel):
     goals: str = Field(description="角色的长期和短期目标")
     background: str = Field(description="背景故事")
     appearance: str = Field(description="外貌细节描述，用于 AI 绘画提示词生成")
+    age: Optional[Literal["young", "middle", "old"]] = Field(None, description="角色年龄阶段")
+    gender: Optional[Literal["male", "female"]] = Field(None, description="角色性别")
+    voice_type: Optional[str] = Field(None, description="声音类型，如 narrator, protagonist, antagonist 等")
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="allow")
 
 class PlotPointSchema(BaseModel):
     """大纲情节点模型"""

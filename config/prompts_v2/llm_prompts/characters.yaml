@@ -1,0 +1,25 @@
+# 角色生成提示词
+prompt: |
+  请为以下小说生成{n}个核心角色。
+
+  小说类型: {genre}
+  世界设定: {world_building}
+
+  请输出以下JSON格式:
+  {{
+      "characters": [
+          {{
+              "id": "char_001",
+              "name": "角色姓名",
+              "role": "protagonist/antagonist/supporting",
+              "description": "核心特质、性格和简短生平",
+              "personality": "详细性格描写",
+              "goals": "角色的长期和短期目标",
+              "background": "背景故事",
+              "appearance": "外貌细节描述，用于AI绘画",
+              "age": "young/middle/old",
+              "gender": "male/female",
+              "voice_type": "narrator/protagonist/antagonist"
+          }}
+      ]
+  }}

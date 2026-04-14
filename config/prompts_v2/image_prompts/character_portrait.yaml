@@ -1,0 +1,6 @@
+# 角色定妆照生成提示词
+prompt: |
+  portrait of {character_name}, {appearance}
+
+  fantasy art style, cinematic lighting, high detail, 8k,
+  full body shot, standing pose

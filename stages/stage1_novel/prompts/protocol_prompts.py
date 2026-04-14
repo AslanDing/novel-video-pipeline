@@ -1,6 +1,11 @@
 import json
 from typing import Dict, Any, Type, List
 from pydantic import BaseModel
+from config.settings import load_prompts
+
+# 加载提示词配置
+PROMPTS = load_prompts()
+STAGE1_PROMPTS = PROMPTS.get("stage1", {})
 
 def generate_field_constraints(schema: Dict[str, Any]) -> str:
     """从 JSON Schema 提取核心字段约束并格式化为文本描述"""
@@ -93,131 +98,93 @@ def generate_protocol_prompt(task_description: str, model: Type[BaseModel]) -> s
     return protocol_prompt
 
 # 预定义系统提示词片段
-STORY_ARCHITECT_CORE = "你是一位资深爽文小说架构师，擅长构筑庞大且逻辑自洽的仙侠、修仙世界观，并精准把握读者的情绪起伏。"
-NOVEL_WRITER_CORE = "你是一位顶级的网文大神，擅长创作宏大的修仙/都市世界。你的文字细腻，善于通过丰富的对白、心理活动和环境描写来铺展情节。你拒绝平铺直叙，擅长在细节中埋下伏笔，让每一章都充满张力和画面感。你生成的内容必须详实、具体，严禁通过总结式语言跳过故事情节。"
-SCRIPT_ADAPTER_CORE = "你是一位专业的影视短视频分镜编剧，擅长将文字正文转化为极具张力和视觉感的镜头脚本。"
+STORY_ARCHITECT_CORE = STAGE1_PROMPTS.get("architect_core", "你是一位资深爽文小说架构师。")
+NOVEL_WRITER_CORE = STAGE1_PROMPTS.get("writer_core", "你是一位顶级的网文大神。")
+SCRIPT_ADAPTER_CORE = PROMPTS.get("stage2", {}).get("script_core", "你是一位专业的分镜编剧。")
 
 
 # ========== 拆分蓝图生成用的 Prompt 模板 ==========
 
 def generate_world_building_prompt(concept) -> str:
     """生成世界观提示词"""
-    return f"""根据以下小说概念，设计一个引人入胜的世界观。
-
-小说概念:
-- 标题: {concept.title}
-- 类型: {concept.genre}
-- 风格: {concept.style}
-- 核心创意: {concept.core_idea}
-
-请设计:
-1. 世界背景设定 (setting) - 涵盖历史、地理和当前局势，200字以上
-2. 主要势力列表 (factions) - 每方势力包含 name, description, type (正/邪/中)
-3. 世界运行的核心规则或禁忌 (rules)
-
-注意：只输出世界观相关的内容，不要包含角色或情节。"""
+    template = STAGE1_PROMPTS.get("world_building", "")
+    if not template:
+        return f"根据以下小说概念，设计一个引人入胜的世界观。\n\n小说概念: {concept.title}"
+    
+    return template.format(
+        title=concept.title,
+        genre=concept.genre,
+        style=concept.style,
+        core_idea=concept.core_idea
+    )
 
 
 def generate_characters_prompt(concept, world_building) -> str:
     """生成角色提示词"""
-    return f"""根据以下小说概念和世界观，设计核心角色。
+    template = STAGE1_PROMPTS.get("characters", "")
+    if not template:
+        return f"根据以下小说概念和世界观，设计核心角色。"
 
-小说概念:
-- 标题: {concept.title}
-- 类型: {concept.genre}
-- 核心创意: {concept.core_idea}
-
-世界观设定:
-{world_building.setting}
-
-势力分布:
-{chr(10).join([f"- {f['name']}: {f['description']}" for f in world_building.factions])}
-
-请设计 1-10 个核心角色，包括:
-- 主角 (protagonist) 至少1个
-- 反派 (antagonist) 至少1个
-- 配角 (supporting) 若干
-
-每个角色需包含: id, name, role, description, personality, goals, background, appearance
-
-注意：appearance 字段要详细，便于后续 AI 绘画生成角色形象。"""
+    return template.format(
+        title=concept.title,
+        genre=concept.genre,
+        core_idea=concept.core_idea,
+        setting=world_building.setting,
+        factions=chr(10).join([f"- {f['name']}: {f['description']}" for f in world_building.factions])
+    )
 
 
 def generate_power_system_prompt(concept, world_building) -> str:
     """生成修炼体系提示词"""
-    return f"""根据以下小说概念和世界观，设计修炼体系。
+    template = STAGE1_PROMPTS.get("power_system", "")
+    if not template:
+        return f"根据以下小说概念和世界观，设计修炼体系。"
 
-小说概念:
-- 标题: {concept.title}
-- 类型: {concept.genre}
-- 核心创意: {concept.core_idea}
-
-世界观设定:
-{world_building.setting}
-
-请设计:
-1. 修炼体系描述 (power_system) - 力量等级划分及其核心逻辑
-2. 修炼境界列表 (cultivation_realms) - 每境包含 name, description, level
-
-注意：体系设计要新颖独特，与世界观相契合。"""
+    return template.format(
+        title=concept.title,
+        genre=concept.genre,
+        core_idea=concept.core_idea,
+        setting=world_building.setting
+    )
 
 
 def generate_plot_structure_prompt(concept, world_building, characters) -> str:
     """生成情节结构提示词"""
+    template = STAGE1_PROMPTS.get("plot_structure", "")
+    if not template:
+        return f"根据以下小说概念、世界观和角色，设计主线剧情结构。"
+
     chars_info = "\n".join([f"- {c.name} ({c.role}): {c.description}" for c in characters[:5]])
-    return f"""根据以下小说概念、世界观和角色，设计主线剧情结构。
-
-小说概念:
-- 标题: {concept.title}
-- 类型: {concept.genre}
-- 计划总章节数: {concept.total_chapters}
-
-世界观设定:
-{world_building.setting}
-
-修炼体系:
-{world_building.power_system}
-
-核心角色:
-{chars_info}
-
-请设计主线剧情结构 (plot_structure)，包含 {max(5, concept.total_chapters // 5)} 个情节点:
-- 每个情节点需指定对应的起始章节号 (chapter)
-- 描述核心冲突和情节发展 (description)
-- 指定主要的爽点类型 (shuangdian_type): 如打脸、升级、奇遇、反转
-- 指定情感强度 (intensity): low, medium, high, extreme
-
-情节点要覆盖从开头到结尾的完整故事弧线。"""
+    return template.format(
+        title=concept.title,
+        genre=concept.genre,
+        total_chapters=concept.total_chapters,
+        setting=world_building.setting,
+        power_system=world_building.power_system,
+        characters=chars_info,
+        plot_count=max(5, concept.total_chapters // 5)
+    )
 
 
 def generate_chapter_plans_prompt(concept, world_building, characters, plot_structure, start_chapter: int, end_chapter: int) -> str:
     """生成章节规划提示词"""
+    template = STAGE1_PROMPTS.get("chapter_plans", "")
+    if not template:
+        return f"请详细规划第 {start_chapter} 到 {end_chapter} 章的章节规划。"
+
     chars_info = "\n".join([f"- {c.name}: {c.goals}" for c in characters[:5]])
-    return f"""请详细规划第 {start_chapter} 到 {end_chapter} 章的章节规划。
-
-小说标题: {concept.title}
-计划总章节数: {concept.total_chapters}
-
-世界观设定:
-{world_building.setting}
-
-修炼体系:
-{world_building.power_system}
-
-主要角色:
-{chars_info}
-
-主线情节点:
-{chr(10).join([f"- 第{p.chapter}章: {p.description} (爽点: {p.shuangdian_type}, 强度: {p.intensity})" for p in plot_structure[:5]])}
-
-请为第 {start_chapter} 到 {end_chapter} 章每章设计:
-- 章节号 (number)
-- 章节标题 (title)
-- 本章内容概要 (summary)
-- 本章必须发生的关键事件列表 (key_events)
-- 本章的具体爽点设计 (shuangdian)，如果适用
-
-确保章节规划连贯且有节奏感。"""
+    plot_info = chr(10).join([f"- 第{p.chapter}章: {p.description} (爽点: {p.shuangdian_type}, 强度: {p.intensity})" for p in plot_structure[:5]])
+    
+    return template.format(
+        start=start_chapter,
+        end=end_chapter,
+        title=concept.title,
+        total_chapters=concept.total_chapters,
+        setting=world_building.setting,
+        power_system=world_building.power_system,
+        characters=chars_info,
+        plot_structure=plot_info
+    )
 
 
 # 预生成的协议式提示词（带 Output 模型）
