@@ -5,12 +5,14 @@ api_service/routers/shots.py
 实现 Shot Spec (Layer 3 配置) 的 API 接口。
 """
 
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
 import sys
-sys.path.append(str(Path(__file__).parent.parent.parent))
+
+sys.path.append(str(Path(__file__).parent.parent))
 
 from api_service.models import TaskStatus, TaskResult
 from core.config_models import ShotSpec, VideoMode, ShotStatus
@@ -20,8 +22,10 @@ router = APIRouter(prefix="/shots", tags=["Shots"])
 
 # ─── Request/Response Models ──────────────────────────────────────────────────
 
+
 class ShotSpecUpdate(BaseModel):
     """镜头规格更新"""
+
     workflow: Optional[str] = None
     purpose: Optional[str] = None
     shot_type: Optional[str] = None
@@ -36,6 +40,7 @@ class ShotSpecUpdate(BaseModel):
 
 class ShotSpecResponse(BaseModel):
     """镜头规格响应"""
+
     shot_id: str
     chapter_id: str
     workflow: str
@@ -56,12 +61,14 @@ class ShotSpecResponse(BaseModel):
 
 class RerenderRequest(BaseModel):
     """重新渲染请求"""
+
     shot_id: str
     regenerate_assets: bool = Field(default=False, description="是否重新生成资产")
 
 
 class RerenderResponse(BaseModel):
     """重新渲染响应"""
+
     task_id: str
     shot_id: str
     status: str
@@ -69,6 +76,7 @@ class RerenderResponse(BaseModel):
 
 
 # ─── Shot Endpoints ────────────────────────────────────────────────────────────
+
 
 @router.get("/{shot_id}", response_model=ShotSpecResponse)
 async def get_shot(shot_id: str) -> ShotSpecResponse:
@@ -96,7 +104,9 @@ async def get_shot(shot_id: str) -> ShotSpecResponse:
         if not project_dir.is_dir():
             continue
 
-        manifest_path = project_dir / "data" / "chapter_manifests" / f"{chapter_id}_manifest.json"
+        manifest_path = (
+            project_dir / "data" / "chapter_manifests" / f"{chapter_id}_manifest.json"
+        )
         if manifest_path.exists():
             manifest = ChapterManifest.load(manifest_path)
 
@@ -152,13 +162,17 @@ async def update_shot(
         workflow=updates.workflow or "character_closeup_i2v_v1",
         purpose=updates.purpose or "",
         characters=[],
-        scene=updates.scene if hasattr(updates, 'scene') else "",
+        scene=updates.scene if hasattr(updates, "scene") else "",
         shot_type=updates.shot_type or "medium",
         mood=updates.mood or "neutral",
         dialogue=updates.dialogue,
         narrator=updates.narrator,
-        needs_character_consistency=updates.needs_character_consistency if updates.needs_character_consistency is not None else True,
-        needs_scene_consistency=updates.needs_scene_consistency if updates.needs_scene_consistency is not None else True,
+        needs_character_consistency=updates.needs_character_consistency
+        if updates.needs_character_consistency is not None
+        else True,
+        needs_scene_consistency=updates.needs_scene_consistency
+        if updates.needs_scene_consistency is not None
+        else True,
         video_mode=updates.video_mode or "i2v",
         status=updates.status or "pending",
         result_image=None,
@@ -187,6 +201,7 @@ async def rerender_shot(
 
     # 创建任务
     from api_service.task_manager import get_task_manager
+
     task_manager = get_task_manager()
 
     task = await task_manager.create_task(
@@ -195,7 +210,7 @@ async def rerender_shot(
             "shot_id": shot_id,
             "chapter_number": chapter_num,
             "regenerate_assets": request.regenerate_assets,
-        }
+        },
     )
 
     # 启动后台任务
@@ -239,7 +254,9 @@ async def _run_rerender_background(
         project_dir = None
         for pdir in outputs_dir.iterdir():
             if pdir.is_dir():
-                manifest_path = pdir / "data" / "chapter_manifests" / f"{chapter_id}_manifest.json"
+                manifest_path = (
+                    pdir / "data" / "chapter_manifests" / f"{chapter_id}_manifest.json"
+                )
                 if manifest_path.exists():
                     project_dir = pdir
                     break
@@ -254,17 +271,26 @@ async def _run_rerender_background(
 
         print(f"Re-rendering shot {shot_id} (regenerate_assets={regenerate_assets})")
 
-        await task_manager.update_task(task_id, TaskStatus.completed, {
-            "shot_id": shot_id,
-        })
+        await task_manager.update_task(
+            task_id,
+            TaskStatus.completed,
+            {
+                "shot_id": shot_id,
+            },
+        )
 
     except Exception as e:
-        await task_manager.update_task(task_id, TaskStatus.failed, {
-            "error": str(e),
-        })
+        await task_manager.update_task(
+            task_id,
+            TaskStatus.failed,
+            {
+                "error": str(e),
+            },
+        )
 
 
 # ─── Bulk Operations ────────────────────────────────────────────────────────────
+
 
 @router.post("/bulk/rerender")
 async def bulk_rerender_shots(
@@ -275,6 +301,7 @@ async def bulk_rerender_shots(
     批量重新渲染多个镜头
     """
     from api_service.task_manager import get_task_manager
+
     task_manager = get_task_manager()
 
     tasks = []
@@ -284,12 +311,14 @@ async def bulk_rerender_shots(
             params={
                 "shot_id": shot_id,
                 "regenerate_assets": regenerate_assets,
+            },
+        )
+        tasks.append(
+            {
+                "shot_id": shot_id,
+                "task_id": task.task_id,
             }
         )
-        tasks.append({
-            "shot_id": shot_id,
-            "task_id": task.task_id,
-        })
 
     return {
         "total": len(shot_ids),

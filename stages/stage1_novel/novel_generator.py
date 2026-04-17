@@ -2,6 +2,7 @@
 小说生成主控器 - 第一阶段核心
 整合故事架构、章节生成和质量控制
 """
+
 import json
 import asyncio
 import math
@@ -14,32 +15,59 @@ from utils.json_helper import extract_json
 from utils.streaming_json_generator import robust_json_generate
 
 import sys
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 from core.llm_client import NVIDIA_NIM_Client
 from core.local_llm_client import get_local_llm_client
 from core.base_pipeline import PipelineStage
-from config.settings import NOVELS_DIR, LOCAL_LLM_CONFIG, get_llm_max_tokens, load_subsystem_config, load_prompts
+from config.settings import (
+    NOVELS_DIR,
+    LOCAL_LLM_CONFIG,
+    get_llm_max_tokens,
+    load_subsystem_config,
+    load_prompts,
+)
 
 from stages.stage1_novel.models import (
-    NovelConcept, StoryBlueprint, WorldBuilding, Character,
-    PlotPoint, Chapter, Novel, ChapterPlan, ScriptLine
+    NovelConcept,
+    StoryBlueprint,
+    WorldBuilding,
+    Character,
+    PlotPoint,
+    Chapter,
+    Novel,
+    ChapterPlan,
+    ScriptLine,
 )
 from stages.stage1_novel.pydantic_models import (
-    StoryBlueprintOutput, ChapterOutput, ChunkOutput, ScriptOutput,
-    WorldBuildingOutput, CharactersOutput, PowerSystemOutput, PlotStructureOutput, ChapterPlansOutput
+    StoryBlueprintOutput,
+    ChapterOutput,
+    ChunkOutput,
+    ScriptOutput,
+    WorldBuildingOutput,
+    CharactersOutput,
+    PowerSystemOutput,
+    PlotStructureOutput,
+    ChapterPlansOutput,
 )
 from stages.stage1_novel.prompts.protocol_prompts import (
-    generate_protocol_prompt, STORY_ARCHITECT_CORE, NOVEL_WRITER_CORE, SCRIPT_ADAPTER_CORE,
-    get_world_building_protocol_prompt, get_characters_protocol_prompt,
-    get_power_system_protocol_prompt, get_plot_structure_protocol_prompt,
-    get_chapter_plans_protocol_prompt
+    generate_protocol_prompt,
+    STORY_ARCHITECT_CORE,
+    NOVEL_WRITER_CORE,
+    SCRIPT_ADAPTER_CORE,
+    get_world_building_protocol_prompt,
+    get_characters_protocol_prompt,
+    get_power_system_protocol_prompt,
+    get_plot_structure_protocol_prompt,
+    get_chapter_plans_protocol_prompt,
 )
 from stages.stage1_novel.shuangdian_system import ShuangDianSystem
 from stages.stage1_novel.quality_controller import QualityController
 from stages.stage1_novel.context_manager import ContextManager
 from stages.stage1_novel.consistency_checker import ConsistencyChecker
 from stages.stage1_novel.rhythm_controller import RhythmController
+from stages.stage1_novel.script_generator import ScriptGenerator
 
 
 class NovelGenerator(PipelineStage):
@@ -51,7 +79,7 @@ class NovelGenerator(PipelineStage):
 
     def __init__(self, llm_client=None, use_local_llm=False, config=None):
         super().__init__("小说生成", config)
-        
+
         # 如果未传入 client，则根据参数初始化
         if llm_client is None:
             if use_local_llm:
@@ -60,7 +88,7 @@ class NovelGenerator(PipelineStage):
                     provider=provider,
                     **LOCAL_LLM_CONFIG.get(provider, {}),
                     temperature=LOCAL_LLM_CONFIG.get("temperature", 0.7),
-                    max_tokens=LOCAL_LLM_CONFIG.get("max_tokens", 4096)
+                    max_tokens=LOCAL_LLM_CONFIG.get("max_tokens", 4096),
                 )
             else:
                 self.llm_client = NVIDIA_NIM_Client()
@@ -74,9 +102,10 @@ class NovelGenerator(PipelineStage):
         self.context_manager = ContextManager()
         self.consistency_checker = ConsistencyChecker()
         self.rhythm_controller = RhythmController()
+        self.script_generator = ScriptGenerator(self.llm_client)
 
         # 长章节分块生成配置
-        self.CHUNK_WORD_COUNT = 2000   # 每块目标字数（降低使 LLM 更容易写满）
+        self.CHUNK_WORD_COUNT = 2000  # 每块目标字数（降低使 LLM 更容易写满）
         self.MAX_TOKENS_LIMIT = 128000  # 最大 tokens 上限
         self.MIN_TOKENS = 8000  # 最小 tokens
 
@@ -91,7 +120,9 @@ class NovelGenerator(PipelineStage):
         total = base_tokens + overhead
         return max(self.MIN_TOKENS, min(self.MAX_TOKENS_LIMIT, total))
 
-    def _save_and_confirm_blueprint(self, blueprint: StoryBlueprint, concept: NovelConcept) -> StoryBlueprint:
+    def _save_and_confirm_blueprint(
+        self, blueprint: StoryBlueprint, concept: NovelConcept
+    ) -> StoryBlueprint:
         """保存蓝图并等待用户确认"""
         import json
 
@@ -100,7 +131,7 @@ class NovelGenerator(PipelineStage):
         output_dir.mkdir(parents=True, exist_ok=True)
         blueprint_path = output_dir / "story_bible.json"
 
-        with open(blueprint_path, 'w', encoding='utf-8') as f:
+        with open(blueprint_path, "w", encoding="utf-8") as f:
             json.dump(blueprint.to_dict(), f, ensure_ascii=False, indent=2)
 
         print(f"\n📄 故事蓝图已保存到: {blueprint_path}")
@@ -109,13 +140,13 @@ class NovelGenerator(PipelineStage):
 
         # 等待用户确认
         user_input = input().strip().lower()
-        if user_input not in ['yes', 'y', '是', '确认', 'ok']:
+        if user_input not in ["yes", "y", "是", "确认", "ok"]:
             print("❌ 用户取消生成")
             raise KeyboardInterrupt("用户取消生成")
 
         # 重新从文件读取蓝图（用户可能修改过）
         print("   ✓ 正在从文件读取蓝图...")
-        with open(blueprint_path, 'r', encoding='utf-8') as f:
+        with open(blueprint_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         # 重建 StoryBlueprint 对象
@@ -143,7 +174,7 @@ class NovelGenerator(PipelineStage):
         if isinstance(input_data, NovelConcept):
             return True
         if isinstance(input_data, dict):
-            required = ['title', 'genre', 'core_idea']
+            required = ["title", "genre", "core_idea"]
             return all(k in input_data for k in required)
         return False
 
@@ -151,20 +182,24 @@ class NovelGenerator(PipelineStage):
         """生成完整小说"""
         print(f"📝 开始生成小说: 《{concept.title}》")
         print(f"   类型: {concept.genre} | {concept.style}")
-        print(f"   章节数: {concept.total_chapters} | 每章字数: {concept.target_word_count}")
+        print(
+            f"   章节数: {concept.total_chapters} | 每章字数: {concept.target_word_count}"
+        )
 
         # 步骤1: 构建故事蓝图
         blueprint = await self._create_blueprint(concept)
 
         # 步骤2: 规划爽点分布
-        shuangdian_plan = self.shuangdian_system.plan_distribution(concept.total_chapters)
+        shuangdian_plan = self.shuangdian_system.plan_distribution(
+            concept.total_chapters
+        )
         print(f"   🎯 爽点规划完成: {len(shuangdian_plan)} 章")
 
         # 步骤3: 生成各章节
         chapters = []
         # 计算输出目录
         output_dir = NOVELS_DIR / concept.title.replace(" ", "_")
-        
+
         for i in range(1, concept.total_chapters + 1):
             chapter = await self._generate_chapter_with_quality_control(
                 chapter_number=i,
@@ -173,13 +208,12 @@ class NovelGenerator(PipelineStage):
                 previous_chapters=chapters,
                 shuangdian=shuangdian_plan.get(i),
             )
-            
-            # --- 分镜脚本拆分已移动到 Stage 2 ---
-            # print(f"   🎬 正在为第{i}章拆分分镜脚本...")
-            # try:
-            #     chapter = await self._adapt_to_script(chapter, blueprint)
-            # except Exception as e:
-            #     print(f"   ⚠️ 第{i}章分镜脚本拆分失败: {e}")
+
+            print(f"   🎬 正在为第{i}章拆分分镜脚本...")
+            try:
+                chapter = await self._adapt_to_script(chapter, blueprint)
+            except Exception as e:
+                print(f"   ⚠️ 第{i}章分镜脚本拆分失败: {e}")
 
             chapters.append(chapter)
 
@@ -198,7 +232,7 @@ class NovelGenerator(PipelineStage):
                     "current_chapter": i,
                     "total_word_count": sum(c.word_count for c in chapters),
                     "creation_time": datetime.now().isoformat(),
-                    "status": "generating"
+                    "status": "generating",
                 },
                 blueprint=blueprint,
                 chapters=chapters,
@@ -214,7 +248,7 @@ class NovelGenerator(PipelineStage):
                 "total_chapters": len(chapters),
                 "total_word_count": sum(c.word_count for c in chapters),
                 "creation_time": datetime.now().isoformat(),
-                "status": "completed"
+                "status": "completed",
             },
             blueprint=blueprint,
             chapters=chapters,
@@ -240,7 +274,7 @@ class NovelGenerator(PipelineStage):
             max_tokens=get_llm_max_tokens("world_building"),
             required_fields=["setting", "factions", "rules"],
             max_attempts=3,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
         if not result:
             raise ValueError("世界观生成失败")
@@ -264,12 +298,14 @@ class NovelGenerator(PipelineStage):
             max_tokens=get_llm_max_tokens("characters"),
             required_fields=["characters"],
             max_attempts=3,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
         if not result:
             raise ValueError("角色生成失败")
         characters_data = result
-        print(f"   ✓ 角色生成成功 ({len(characters_data.get('characters', []))} 个角色)")
+        print(
+            f"   ✓ 角色生成成功 ({len(characters_data.get('characters', []))} 个角色)"
+        )
 
         characters = [Character(**c) for c in characters_data.get("characters", [])]
 
@@ -283,7 +319,7 @@ class NovelGenerator(PipelineStage):
             max_tokens=get_llm_max_tokens("power_system"),
             required_fields=["power_system", "cultivation_realms"],
             max_attempts=3,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
         if not result:
             raise ValueError("修炼体系生成失败")
@@ -295,7 +331,9 @@ class NovelGenerator(PipelineStage):
 
         # ========== Step 4: 生成情节结构 (基于角色和世界观) ==========
         print("   📍 Step 4/5: 生成情节结构...")
-        system_prompt = get_plot_structure_protocol_prompt(concept, world_building, characters)
+        system_prompt = get_plot_structure_protocol_prompt(
+            concept, world_building, characters
+        )
         result, _ = await robust_json_generate(
             llm_client=self.llm_client,
             prompt="",
@@ -303,14 +341,18 @@ class NovelGenerator(PipelineStage):
             max_tokens=get_llm_max_tokens("plot_structure"),
             required_fields=["plot_structure"],
             max_attempts=3,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
         if not result:
             raise ValueError("情节结构生成失败")
         plot_structure_data = result
-        print(f"   ✓ 情节结构生成成功 ({len(plot_structure_data.get('plot_structure', []))} 个情节点)")
+        print(
+            f"   ✓ 情节结构生成成功 ({len(plot_structure_data.get('plot_structure', []))} 个情节点)"
+        )
 
-        plot_structure = [PlotPoint(**p) for p in plot_structure_data.get("plot_structure", [])]
+        plot_structure = [
+            PlotPoint(**p) for p in plot_structure_data.get("plot_structure", [])
+        ]
 
         # ========== Step 5: 生成章节规划 (批量生成) ==========
         print("   📍 Step 5/5: 生成章节规划...")
@@ -320,7 +362,12 @@ class NovelGenerator(PipelineStage):
         if concept.total_chapters <= batch_size:
             # 小于等于批量大小，一次性生成
             system_prompt = get_chapter_plans_protocol_prompt(
-                concept, world_building, characters, plot_structure, 1, concept.total_chapters
+                concept,
+                world_building,
+                characters,
+                plot_structure,
+                1,
+                concept.total_chapters,
             )
             result, _ = await robust_json_generate(
                 llm_client=self.llm_client,
@@ -329,7 +376,7 @@ class NovelGenerator(PipelineStage):
                 max_tokens=get_llm_max_tokens("chapter_plans"),
                 required_fields=["chapter_plans"],
                 max_attempts=3,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
             if not result:
                 raise ValueError("章节规划生成失败")
@@ -343,7 +390,12 @@ class NovelGenerator(PipelineStage):
                 print(f"   正在规划第 {start_ch} 到 {end_ch} 章...")
 
                 system_prompt = get_chapter_plans_protocol_prompt(
-                    concept, world_building, characters, plot_structure, start_ch, end_ch
+                    concept,
+                    world_building,
+                    characters,
+                    plot_structure,
+                    start_ch,
+                    end_ch,
                 )
                 result, _ = await robust_json_generate(
                     llm_client=self.llm_client,
@@ -352,7 +404,7 @@ class NovelGenerator(PipelineStage):
                     max_tokens=get_llm_max_tokens("chapter_plans"),
                     required_fields=["chapter_plans"],
                     max_attempts=3,
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
                 )
                 if result:
                     batch_plans = result.get("chapter_plans", [])
@@ -400,13 +452,17 @@ class NovelGenerator(PipelineStage):
                 # 检查内容是否有效
                 if chapter and chapter.content and len(chapter.content) > 100:
                     # 质量评估
-                    quality_score = await self.quality_controller.evaluate_chapter(chapter, blueprint, previous_chapters)
+                    quality_score = await self.quality_controller.evaluate_chapter(
+                        chapter, blueprint, previous_chapters
+                    )
                     chapter.quality_score = quality_score
 
                     # 字数明显不足（< 60% 目标），触发重写扩展
                     target = concept.target_word_count
                     if chapter.word_count < target * 0.6 and attempt < max_retries:
-                        print(f"   🔧 字数不足（{chapter.word_count}/{target}字），触发扩展重写...")
+                        print(
+                            f"   🔧 字数不足（{chapter.word_count}/{target}字），触发扩展重写..."
+                        )
                         length_issue = (
                             f"章节字数严重不足（当前约{chapter.word_count}字，目标{target}字）。"
                             f"请大幅展开内容：增加对话、心理描写、环境描写和细节，补充到{target}字左右"
@@ -417,8 +473,10 @@ class NovelGenerator(PipelineStage):
                         )
                         if rewritten and rewritten.word_count > chapter.word_count:
                             chapter = rewritten
-                            quality_score = await self.quality_controller.evaluate_chapter(
-                                chapter, blueprint, previous_chapters
+                            quality_score = (
+                                await self.quality_controller.evaluate_chapter(
+                                    chapter, blueprint, previous_chapters
+                                )
                             )
                             chapter.quality_score = quality_score
 
@@ -426,13 +484,19 @@ class NovelGenerator(PipelineStage):
                     self.context_manager.cache_chapter_summary(chapter)
 
                     if attempt > 1:
-                        print(f"   ✓ 第{chapter_number}章生成成功 (尝试 {attempt}/{max_retries})")
+                        print(
+                            f"   ✓ 第{chapter_number}章生成成功 (尝试 {attempt}/{max_retries})"
+                        )
                     return chapter
                 else:
-                    print(f"   ⚠️ 第{chapter_number}章生成内容无效 (尝试 {attempt}/{max_retries})")
+                    print(
+                        f"   ⚠️ 第{chapter_number}章生成内容无效 (尝试 {attempt}/{max_retries})"
+                    )
 
             except Exception as e:
-                print(f"   ⚠️ 第{chapter_number}章生成失败: {e} (尝试 {attempt}/{max_retries})")
+                print(
+                    f"   ⚠️ 第{chapter_number}章生成失败: {e} (尝试 {attempt}/{max_retries})"
+                )
                 if attempt == max_retries:
                     raise
 
@@ -462,9 +526,9 @@ class NovelGenerator(PipelineStage):
             chapter_plan_dict = {
                 "title": f"第{chapter_number}章",
                 "summary": "本章概要缺失",
-                "key_events": []
+                "key_events": [],
             }
-            
+
         chapter_plan = ChapterPlan(
             number=chapter_number,
             title=chapter_plan_dict.get("title", f"第{chapter_number}章"),
@@ -472,18 +536,32 @@ class NovelGenerator(PipelineStage):
             key_events=chapter_plan_dict.get("key_events", []),
         )
 
-        plot_point = next((pp for pp in blueprint.plot_structure if pp.chapter == chapter_number), None)
-        chapter_plan = self.shuangdian_system.enhance_chapter_plan(chapter_plan, plot_point)
-        if shuangdian: chapter_plan.shuangdian = shuangdian
-        chapter_plan.template_type = self.rhythm_controller.select_chapter_template(chapter_number, concept.total_chapters, blueprint.plot_structure)
+        plot_point = next(
+            (pp for pp in blueprint.plot_structure if pp.chapter == chapter_number),
+            None,
+        )
+        chapter_plan = self.shuangdian_system.enhance_chapter_plan(
+            chapter_plan, plot_point
+        )
+        if shuangdian:
+            chapter_plan.shuangdian = shuangdian
+        chapter_plan.template_type = self.rhythm_controller.select_chapter_template(
+            chapter_number, concept.total_chapters, blueprint.plot_structure
+        )
 
-        context = self.context_manager.build_chapter_context(chapter_number, blueprint, previous_chapters)
+        context = self.context_manager.build_chapter_context(
+            chapter_number, blueprint, previous_chapters
+        )
 
         # 目标字数 > 3000 时分块生成，确保每次 LLM 调用只需写 2000 字
         if concept.target_word_count > 3000:
-            chapter = await self._generate_with_adaptive_chunking(chapter_plan, blueprint, concept, context)
+            chapter = await self._generate_with_adaptive_chunking(
+                chapter_plan, blueprint, concept, context
+            )
         else:
-            chapter = await self._generate_raw_chapter(chapter_plan, blueprint, concept, context)
+            chapter = await self._generate_raw_chapter(
+                chapter_plan, blueprint, concept, context
+            )
 
         return chapter
 
@@ -502,7 +580,7 @@ class NovelGenerator(PipelineStage):
             characters_info += f"- {c.name}: {c.personality}\n"
 
         system_prompt = generate_protocol_prompt(NOVEL_WRITER_CORE, ChapterOutput)
-        
+
         task_template = self.stage1_prompts.get("chapter_writer_task", "")
         if task_template:
             task_description = task_template.format(
@@ -512,8 +590,10 @@ class NovelGenerator(PipelineStage):
                 characters=characters_info,
                 context=context,
                 summary=chapter_plan.summary,
-                key_events=', '.join(chapter_plan.key_events),
-                shuangdian=f"- 爽点设计: {chapter_plan.shuangdian.description}\n" if chapter_plan.shuangdian else ""
+                key_events=", ".join(chapter_plan.key_events),
+                shuangdian=f"- 爽点设计: {chapter_plan.shuangdian.description}\n"
+                if chapter_plan.shuangdian
+                else "",
             )
         else:
             task_description = (
@@ -523,9 +603,11 @@ class NovelGenerator(PipelineStage):
                 f"本章规划:\n- 概要: {chapter_plan.summary}\n"
                 f"- 关键事件: {', '.join(chapter_plan.key_events)}\n"
             )
-            if chapter_plan.shuangdian: 
-                task_description += f"- 爽点设计: {chapter_plan.shuangdian.description}\n"
-            
+            if chapter_plan.shuangdian:
+                task_description += (
+                    f"- 爽点设计: {chapter_plan.shuangdian.description}\n"
+                )
+
             task_description += "\n核心要求：请展开细节，增加生动的对话、环境描写和心理描写，使内容丰满。严禁简略概括情节。"
 
         max_tokens = self._calculate_max_tokens(concept.target_word_count)
@@ -537,7 +619,7 @@ class NovelGenerator(PipelineStage):
             max_tokens=max_tokens,
             required_fields=["title", "content", "summary", "key_events"],
             max_attempts=3,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
 
         if not result:
@@ -558,16 +640,22 @@ class NovelGenerator(PipelineStage):
             print(f"⚠️ 解析章节失败: {e}")
             return None
 
-    async def _generate_with_adaptive_chunking(self, chapter_plan, blueprint, concept, context) -> Chapter:
+    async def _generate_with_adaptive_chunking(
+        self, chapter_plan, blueprint, concept, context
+    ) -> Chapter:
         """分块生成长章节
-        
+
         核心修复：
         - CHUNK_WORD_COUNT=2000，每块目标2000字，LLM 单次更容易写满
         - num_chunks = ceil(target / chunk_size)，公式正确计算块数
         - 每块使用带 JSON Schema 的 protocol prompt，确保输出格式和质量
         """
-        num_chunks = max(2, math.ceil(concept.target_word_count / self.CHUNK_WORD_COUNT))
-        print(f"   📦 分块生成第{chapter_plan.number}章（目标{concept.target_word_count}字 → {num_chunks}块 × {self.CHUNK_WORD_COUNT}字）")
+        num_chunks = max(
+            2, math.ceil(concept.target_word_count / self.CHUNK_WORD_COUNT)
+        )
+        print(
+            f"   📦 分块生成第{chapter_plan.number}章（目标{concept.target_word_count}字 → {num_chunks}块 × {self.CHUNK_WORD_COUNT}字）"
+        )
 
         chunks = []
         all_key_events = []
@@ -578,18 +666,22 @@ class NovelGenerator(PipelineStage):
         chunk_system_prompt = generate_protocol_prompt(NOVEL_WRITER_CORE, ChunkOutput)
 
         for i in range(num_chunks):
-            is_last = (i == num_chunks - 1)
+            is_last = i == num_chunks - 1
             prev_content = "\n".join(chunks)
-            prompt = self._build_chunk_prompt(chapter_plan, current_context, i, num_chunks, is_last, prev_content)
+            prompt = self._build_chunk_prompt(
+                chapter_plan, current_context, i, num_chunks, is_last, prev_content
+            )
 
             result, _ = await robust_json_generate(
                 llm_client=self.llm_client,
                 prompt=prompt,
                 system_prompt=chunk_system_prompt,
-                max_tokens=get_llm_max_tokens("chapter_chunk"),  # 使用独立的分块 token 上限
+                max_tokens=get_llm_max_tokens(
+                    "chapter_chunk"
+                ),  # 使用独立的分块 token 上限
                 required_fields=["content"],
                 max_attempts=3,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
 
             if result:
@@ -601,11 +693,11 @@ class NovelGenerator(PipelineStage):
                         all_key_events.extend(result["key_events"])
                     if result.get("character_appearances"):
                         all_char_appearances.extend(result["character_appearances"])
-                    print(f"      ✓ 第{i+1}/{num_chunks}块完成（{len(content)}字）")
+                    print(f"      ✓ 第{i + 1}/{num_chunks}块完成（{len(content)}字）")
                 else:
-                    print(f"      ⚠️ 第{i+1}/{num_chunks}块内容为空")
+                    print(f"      ⚠️ 第{i + 1}/{num_chunks}块内容为空")
             else:
-                print(f"      ⚠️ 第{i+1}/{num_chunks}块生成失败，继续...")
+                print(f"      ⚠️ 第{i + 1}/{num_chunks}块生成失败，继续...")
 
         if not chunks:
             return None
@@ -618,32 +710,62 @@ class NovelGenerator(PipelineStage):
             content=full_content,
             word_count=len(full_content),
             summary=chapter_plan.summary,
-            key_events=list(dict.fromkeys(all_key_events)) if all_key_events else chapter_plan.key_events,
+            key_events=list(dict.fromkeys(all_key_events))
+            if all_key_events
+            else chapter_plan.key_events,
             character_appearances=list(dict.fromkeys(all_char_appearances)),
         )
 
+    async def _adapt_to_script(
+        self,
+        chapter: Chapter,
+        blueprint: StoryBlueprint,
+        shots_per_chapter: int = 8,
+    ) -> Chapter:
+        """将章节内容拆分为分镜脚本"""
+        if hasattr(chapter, "script_lines") and chapter.script_lines:
+            print(f"      第{chapter.number}章已有分镜脚本，跳过生成")
+            return chapter
+
+        script_lines = await self.script_generator.generate_script_lines(
+            chapter=chapter,
+            blueprint=blueprint,
+            shots_per_chapter=shots_per_chapter,
+        )
+
+        chapter.script_lines = script_lines
+        return chapter
+
     def _build_chunk_prompt(self, chapter_plan, context, index, total, is_last, prev):
-        part_desc = "开头部分" if index == 0 else ("结尾部分" if is_last else f"中间第{index+1}部分")
+        part_desc = (
+            "开头部分"
+            if index == 0
+            else ("结尾部分" if is_last else f"中间第{index + 1}部分")
+        )
         prev_excerpt = prev[-800:] if prev else "（本章第一段，无前文）"
-        
+
         template = self.stage1_prompts.get("chunk_writer_task", "")
         if template:
             return template.format(
                 number=chapter_plan.number,
                 title=chapter_plan.title,
                 part_desc=part_desc,
-                index=index+1,
+                index=index + 1,
                 total=total,
                 chunk_words=self.CHUNK_WORD_COUNT,
                 summary=chapter_plan.summary,
-                key_events=', '.join(chapter_plan.key_events),
+                key_events=", ".join(chapter_plan.key_events),
                 context=context,
                 prev_excerpt=prev_excerpt,
-                ending_instruction=('本段是最后一段，请写好反转或悬念收尾' if is_last else '本段不是结尾，不要做总结性收尾，保持叙事张力')
+                ending_instruction=(
+                    "本段是最后一段，请写好反转或悬念收尾"
+                    if is_last
+                    else "本段不是结尾，不要做总结性收尾，保持叙事张力"
+                ),
             )
 
         return (
-            f"请创作第{chapter_plan.number}章《{chapter_plan.title}》的{part_desc}（第{index+1}/{total}段）\n"
+            f"请创作第{chapter_plan.number}章《{chapter_plan.title}》的{part_desc}（第{index + 1}/{total}段）\n"
             f"目标字数: {self.CHUNK_WORD_COUNT}字左右\n\n"
             f"本章整体概要: {chapter_plan.summary}\n"
             f"本章关键事件: {', '.join(chapter_plan.key_events)}\n\n"
@@ -657,26 +779,46 @@ class NovelGenerator(PipelineStage):
         )
 
 
-
 class NovelGenerationPipeline(PipelineStage):
     def __init__(self, llm_client=None, config=None):
         super().__init__("小说生成", config)
         self.generator = NovelGenerator(llm_client, config)
-    def validate_input(self, input_data): return self.generator.validate_input(input_data)
-    async def process(self, concept): return await self.generator.process(concept)
+
+    def validate_input(self, input_data):
+        return self.generator.validate_input(input_data)
+
+    async def process(self, concept):
+        return await self.generator.process(concept)
 
 
-async def quick_generate_novel(title, genre="修仙", core_idea="", total_chapters=3, llm_client=None):
-    concept = NovelConcept(title=title, genre=genre, style="爽文", core_idea=core_idea, total_chapters=total_chapters, target_word_count=5000)
-    if not llm_client: llm_client = NVIDIA_NIM_Client()
+async def quick_generate_novel(
+    title, genre="修仙", core_idea="", total_chapters=3, llm_client=None
+):
+    concept = NovelConcept(
+        title=title,
+        genre=genre,
+        style="爽文",
+        core_idea=core_idea,
+        total_chapters=total_chapters,
+        target_word_count=5000,
+    )
+    if not llm_client:
+        llm_client = NVIDIA_NIM_Client()
     generator = NovelGenerator(llm_client)
     return await generator.process(concept)
 
 
 async def test_novel_generator():
     from core.llm_client import MockLLMClient
+
     mock_client = MockLLMClient()
-    concept = NovelConcept(title="测试小说", genre="科幻", core_idea="AI统治世界", total_chapters=1, target_word_count=1000)
+    concept = NovelConcept(
+        title="测试小说",
+        genre="科幻",
+        core_idea="AI统治世界",
+        total_chapters=1,
+        target_word_count=1000,
+    )
     generator = NovelGenerator(mock_client)
     novel = await generator.process(concept)
     print(f"测试完成: {novel.metadata['title']}")

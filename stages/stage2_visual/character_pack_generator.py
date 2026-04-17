@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import json
 
 import sys
+
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from stages.stage1_novel.models import Character
@@ -25,6 +26,7 @@ from config.settings import IMAGE_GENERATION
 @dataclass
 class CharacterPack:
     """角色包"""
+
     character_id: str
     character_name: str
     portrait_path: Optional[str] = None
@@ -151,18 +153,29 @@ class CharacterPackGenerator:
         prompt = await self._build_portrait_prompt(character)
 
         try:
-            # 生成 512x512 的定妆照
-            # 注意：这里复用 image_generator 的逻辑
-            # 简化实现，实际应该调用 image_generator
             print(f"      🎨 生成定妆照: {character.name}")
 
-            # 实际实现应该调用 image_generator
-            # 这里简化处理
             char_dir = self.storage.get_character_dir(character.name)
             output_path = char_dir / "portrait.png"
 
-            # 占位：实际需要调用图像生成 API
-            # await self.image_generator.generate_portrait(prompt, output_path)
+            if self.image_generator.local_model:
+                from PIL import Image
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=512,
+                    height=512,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(42),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
 
             return str(output_path) if output_path.exists() else None
         except Exception as e:
@@ -177,9 +190,30 @@ class CharacterPackGenerator:
         prompt = await self._build_face_ref_prompt(character)
 
         try:
+            print(f"      🎨 生成脸部参考: {character.name}")
+
             char_dir = self.storage.get_character_dir(character.name)
             output_path = char_dir / "face_ref.png"
-            print(f"      🎨 生成脸部参考: {character.name}")
+
+            if self.image_generator.local_model:
+                from PIL import Image
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=512,
+                    height=512,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(43),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 脸部参考生成失败: {e}")
@@ -193,9 +227,30 @@ class CharacterPackGenerator:
         prompt = await self._build_outfit_prompt(character)
 
         try:
+            print(f"      🎨 生成服装参考: {character.name}")
+
             char_dir = self.storage.get_character_dir(character.name)
             output_path = char_dir / "outfit_ref.png"
-            print(f"      🎨 生成服装参考: {character.name}")
+
+            if self.image_generator.local_model:
+                from PIL import Image
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=512,
+                    height=768,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(44),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 服装参考生成失败: {e}")
@@ -213,9 +268,30 @@ class CharacterPackGenerator:
         prompt = await self._build_expression_prompt(character, emotion)
 
         try:
+            print(f"      🎨 生成表情 ({emotion}): {character.name}")
+
             char_dir = self.storage.get_character_dir(character.name)
             output_path = char_dir / "expressions" / f"{emotion}.png"
-            print(f"      🎨 生成表情 ({emotion}): {character.name}")
+
+            if self.image_generator.local_model:
+                from PIL import Image
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=512,
+                    height=512,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(45),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 表情生成失败 ({emotion}): {e}")
@@ -275,7 +351,7 @@ class CharacterPackGenerator:
     def _save_character_pack_info(self, pack: CharacterPack, char_dir: Path):
         """保存角色包信息"""
         info_path = char_dir / "character_pack.json"
-        with open(info_path, 'w', encoding='utf-8') as f:
+        with open(info_path, "w", encoding="utf-8") as f:
             json.dump(pack.to_dict(), f, ensure_ascii=False, indent=2)
 
 
@@ -341,7 +417,7 @@ class CharacterPackManager:
             info_path = char_dir / "character_pack.json"
             if info_path.exists():
                 try:
-                    with open(info_path, 'r', encoding='utf-8') as f:
+                    with open(info_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     packs[char_dir.name] = CharacterPack(**data)
                 except Exception:

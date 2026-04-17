@@ -8,16 +8,16 @@ Stage 1 → Stage 2/3 的关键数据桥梁。
 
 import json
 import re
+from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from dataclasses import asdict
 import asyncio
 
 import sys
-sys.path.append(str(__file__).parent.parent.parent))
 
-from stages.stage1_novel.models import (
-    Chapter, StoryBlueprint, Character, ScriptLine
-)
+sys.path.append(str(Path(__file__).parent.parent))
+
+from stages.stage1_novel.models import Chapter, StoryBlueprint, Character, ScriptLine
 from core.llm_client import NVIDIA_NIM_Client
 from config.settings import load_prompts
 
@@ -67,7 +67,9 @@ class ScriptGenerator:
         character_names = [c.name for c in blueprint.characters]
 
         # 使用 LLM 分析章节内容，生成分镜
-        shots = await self._extract_shots_with_llm(chapter, blueprint, shots_per_chapter)
+        shots = await self._extract_shots_with_llm(
+            chapter, blueprint, shots_per_chapter
+        )
 
         # 如果 LLM 失败，回退到简单分段
         if not shots:
@@ -79,7 +81,7 @@ class ScriptGenerator:
 
         for i, shot in enumerate(shots):
             scene_id = f"SC{chapter.number:02d}"
-            shot_id = f"{scene_id}_SH{i+1:02d}"
+            shot_id = f"{scene_id}_SH{i + 1:02d}"
 
             script_line = ScriptLine(
                 scene_id=scene_id,
@@ -106,9 +108,9 @@ class ScriptGenerator:
     ) -> List[Dict]:
         """使用 LLM 提取分镜"""
         # 构建角色描述用于提示
-        characters_info = "\n".join([
-            f"- {c.name}: {c.description[:50]}..." for c in blueprint.characters[:5]
-        ])
+        characters_info = "\n".join(
+            [f"- {c.name}: {c.description[:50]}..." for c in blueprint.characters[:5]]
+        )
 
         prompt = f"""请分析以下小说章节内容，将其拆分为{target_shots}个分镜镜头。
 
@@ -160,7 +162,7 @@ class ScriptGenerator:
     def _extract_json(self, content: str) -> Optional[Dict]:
         """从文本中提取 JSON"""
         # 尝试 ```json 格式
-        match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+        match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group(1))
@@ -168,7 +170,7 @@ class ScriptGenerator:
                 pass
 
         # 尝试直接解析
-        match = re.search(r'\{.*\}', content, re.DOTALL)
+        match = re.search(r"\{.*\}", content, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group(0))
@@ -282,7 +284,9 @@ class ScriptGenerator:
         if role == "narrator":
             return "narrative scene, atmospheric, cinematic lighting, fantasy world"
         else:
-            return f"character {speaker}, cinematic, dramatic lighting, fantasy art style"
+            return (
+                f"character {speaker}, cinematic, dramatic lighting, fantasy art style"
+            )
 
 
 async def generate_chapter_scripts(
@@ -308,7 +312,7 @@ async def generate_chapter_scripts(
 
     # 保存到 JSONL
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         for line in script_lines:
             f.write(json.dumps(line.to_dict(), ensure_ascii=False) + "\n")
 
@@ -321,7 +325,7 @@ def load_script_lines_from_jsonl(jsonl_path: str) -> List[ScriptLine]:
         return []
 
     script_lines = []
-    with open(jsonl_path, 'r', encoding='utf-8') as f:
+    with open(jsonl_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:

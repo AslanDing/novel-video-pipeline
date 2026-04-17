@@ -5,17 +5,23 @@ api_service/routers/projects.py
 实现三层配置模型的 API 接口。
 """
 
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
 import sys
-sys.path.append(str(Path(__file__).parent.parent.parent))
+
+sys.path.append(str(Path(__file__).parent.parent))
 
 from core.storage import ProjectStorage, create_project_storage
 from core.config_models import (
-    ProjectPreset, ChapterManifest, ShotSpec,
-    create_default_project_preset, VideoMode, ShotStatus
+    ProjectPreset,
+    ChapterManifest,
+    ShotSpec,
+    create_default_project_preset,
+    VideoMode,
+    ShotStatus,
 )
 from api_service.models import TaskStatus, TaskResult
 
@@ -24,8 +30,10 @@ router = APIRouter(prefix="/projects", tags=["Projects"])
 
 # ─── Request/Response Models ──────────────────────────────────────────────────
 
+
 class CreateProjectRequest(BaseModel):
     """创建项目请求"""
+
     title: str = Field(..., description="项目标题")
     genre: str = Field(default="修仙", description="小说类型")
     visual_style: str = Field(default="cinematic", description="视觉风格")
@@ -34,6 +42,7 @@ class CreateProjectRequest(BaseModel):
 
 class ProjectResponse(BaseModel):
     """项目响应"""
+
     project_id: str
     title: str
     genre: str
@@ -43,6 +52,7 @@ class ProjectResponse(BaseModel):
 
 class ChapterManifestResponse(BaseModel):
     """章节清单响应"""
+
     chapter_id: str
     chapter_number: int
     project_id: str
@@ -54,12 +64,14 @@ class ChapterManifestResponse(BaseModel):
 
 class RenderRequest(BaseModel):
     """渲染请求"""
+
     chapter_number: int = Field(..., description="章节号")
     force_regenerate: bool = Field(default=False, description="是否强制重新生成")
 
 
 class RenderResponse(BaseModel):
     """渲染响应"""
+
     task_id: str
     chapter_number: int
     status: str
@@ -67,6 +79,7 @@ class RenderResponse(BaseModel):
 
 
 # ─── Project Endpoints ────────────────────────────────────────────────────────
+
 
 @router.post("/create", response_model=ProjectResponse)
 async def create_project(request: CreateProjectRequest) -> ProjectResponse:
@@ -161,7 +174,11 @@ async def get_project_assets(project_id: str) -> dict:
 
 # ─── Chapter Manifest Endpoints ────────────────────────────────────────────────
 
-@router.post("/{project_id}/chapters/{chapter_number}/manifest", response_model=ChapterManifestResponse)
+
+@router.post(
+    "/{project_id}/chapters/{chapter_number}/manifest",
+    response_model=ChapterManifestResponse,
+)
 async def generate_chapter_manifest(
     project_id: str,
     chapter_number: int,
@@ -184,10 +201,13 @@ async def generate_chapter_manifest(
     # 加载故事蓝图
     blueprint_path = storage.get_story_bible_path()
     if not blueprint_path.exists():
-        raise HTTPException(status_code=400, detail="Story bible not found, please generate novel first")
+        raise HTTPException(
+            status_code=400, detail="Story bible not found, please generate novel first"
+        )
 
     import json
-    with open(blueprint_path, 'r', encoding='utf-8') as f:
+
+    with open(blueprint_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     blueprint_data = data.get("blueprint", {})
@@ -271,6 +291,7 @@ async def get_chapter_manifest(
 
 # ─── Render Endpoint ──────────────────────────────────────────────────────────
 
+
 @router.post("/{project_id}/render", response_model=RenderResponse)
 async def render_chapter(
     project_id: str,
@@ -298,7 +319,7 @@ async def render_chapter(
             "project_id": project_id,
             "chapter_number": request.chapter_number,
             "force_regenerate": request.force_regenerate,
-        }
+        },
     )
 
     # 启动后台任务
@@ -340,27 +361,56 @@ async def _run_render_background(
         pipeline = AssetFirstPipeline(project_id)
         await pipeline._run_phase_2(chapter_number)
 
-        await task_manager.update_task(task_id, TaskStatus.completed, {
-            "chapter_number": chapter_number,
-        })
+        await task_manager.update_task(
+            task_id,
+            TaskStatus.completed,
+            {
+                "chapter_number": chapter_number,
+            },
+        )
 
     except Exception as e:
-        await task_manager.update_task(task_id, TaskStatus.failed, {
-            "error": str(e),
-        })
+        await task_manager.update_task(
+            task_id,
+            TaskStatus.failed,
+            {
+                "error": str(e),
+            },
+        )
 
 
 # ─── Helper Functions ──────────────────────────────────────────────────────────
 
-def _extract_scenes_from_chapter(storage: ProjectStorage, chapter_number: int) -> List[str]:
+
+def _extract_scenes_from_chapter(
+    storage: ProjectStorage, chapter_number: int
+) -> List[str]:
     """从章节内容中提取场景列表"""
     content = storage.load_chapter_content(chapter_number)
 
     # 常见场景关键词
     scene_keywords = [
-        "酒馆", "客栈", "山洞", "森林", "山顶", "悬崖", "大殿",
-        "广场", "街道", "小巷", "皇宫", "宗门", "修炼场", "书房",
-        "卧室", "厨房", "花园", "湖边", "河边", "海边", "沙漠",
+        "酒馆",
+        "客栈",
+        "山洞",
+        "森林",
+        "山顶",
+        "悬崖",
+        "大殿",
+        "广场",
+        "街道",
+        "小巷",
+        "皇宫",
+        "宗门",
+        "修炼场",
+        "书房",
+        "卧室",
+        "厨房",
+        "花园",
+        "湖边",
+        "河边",
+        "海边",
+        "沙漠",
     ]
 
     scenes = []

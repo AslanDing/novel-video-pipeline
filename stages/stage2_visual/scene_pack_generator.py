@@ -15,6 +15,7 @@ import json
 import re
 
 import sys
+
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from stages.stage1_novel.models import Chapter
@@ -26,6 +27,7 @@ from config.settings import IMAGE_GENERATION
 @dataclass
 class ScenePack:
     """场景包"""
+
     scene_id: str
     scene_name: str
     wide_path: Optional[str] = None  # 全景
@@ -139,7 +141,9 @@ class ScenePackGenerator:
             print(f"      ✓ 氛围参考已存在: {scene_name}/mood_ref.png")
 
         # 5. 生成夜景（如果场景有夜间元素）
-        if any(keyword in context.lower() for keyword in ["夜", "晚", "月", "星", "灯"]):
+        if any(
+            keyword in context.lower() for keyword in ["夜", "晚", "月", "星", "灯"]
+        ):
             night_path = scene_dir / "night_view.png"
             if force_regenerate or not night_path.exists():
                 night_path_str = await self._generate_night_view(scene_name, context)
@@ -164,7 +168,25 @@ class ScenePackGenerator:
             scene_dir = self.storage.get_scene_dir(scene_name)
             output_path = scene_dir / "wide.png"
             print(f"      🎨 生成全景: {scene_name}")
-            # 实际应该调用图像生成
+
+            if self.image_generator.local_model:
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=1024,
+                    height=576,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(50),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 全景生成失败: {e}")
@@ -181,6 +203,25 @@ class ScenePackGenerator:
             scene_dir = self.storage.get_scene_dir(scene_name)
             output_path = scene_dir / "medium.png"
             print(f"      🎨 生成中景: {scene_name}")
+
+            if self.image_generator.local_model:
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=768,
+                    height=768,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(51),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 中景生成失败: {e}")
@@ -197,6 +238,25 @@ class ScenePackGenerator:
             scene_dir = self.storage.get_scene_dir(scene_name)
             output_path = scene_dir / "closeup.png"
             print(f"      🎨 生成特写: {scene_name}")
+
+            if self.image_generator.local_model:
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=512,
+                    height=512,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(52),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 特写生成失败: {e}")
@@ -213,12 +273,33 @@ class ScenePackGenerator:
             scene_dir = self.storage.get_scene_dir(scene_name)
             output_path = scene_dir / "mood_ref.png"
             print(f"      🎨 生成氛围参考: {scene_name}")
+
+            if self.image_generator.local_model:
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=512,
+                    height=512,
+                    num_inference_steps=25,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(53),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 氛围参考生成失败: {e}")
             return None
 
-    async def _generate_night_view(self, scene_name: str, context: str) -> Optional[str]:
+    async def _generate_night_view(
+        self, scene_name: str, context: str
+    ) -> Optional[str]:
         """生成夜景图"""
         if not self.image_generator:
             return None
@@ -229,6 +310,25 @@ class ScenePackGenerator:
             scene_dir = self.storage.get_scene_dir(scene_name)
             output_path = scene_dir / "night_view.png"
             print(f"      🎨 生成夜景: {scene_name}")
+
+            if self.image_generator.local_model:
+                import torch
+
+                result = self.image_generator.local_model(
+                    prompt=prompt,
+                    width=1024,
+                    height=576,
+                    num_inference_steps=30,
+                    guidance_scale=7.5,
+                    generator=torch.Generator(
+                        device=self.image_generator.device
+                    ).manual_seed(54),
+                )
+                image = result.images[0]
+                image.save(output_path)
+            else:
+                return None
+
             return str(output_path) if output_path.exists() else None
         except Exception as e:
             print(f"      ⚠️ 夜景生成失败: {e}")
@@ -262,7 +362,7 @@ class ScenePackGenerator:
     def _save_scene_pack_info(self, pack: ScenePack, scene_dir: Path):
         """保存场景包信息"""
         info_path = scene_dir / "scene_pack.json"
-        with open(info_path, 'w', encoding='utf-8') as f:
+        with open(info_path, "w", encoding="utf-8") as f:
             json.dump(pack.to_dict(), f, ensure_ascii=False, indent=2)
 
 
@@ -316,9 +416,27 @@ class ScenePackManager:
 
         # 常见场景关键词
         scene_keywords = [
-            "酒馆", "客栈", "山洞", "森林", "山顶", "悬崖", "大殿",
-            "广场", "街道", "小巷", "皇宫", "宗门", "修炼场", "书房",
-            "卧室", "厨房", "花园", "湖边", "河边", "海边", "沙漠",
+            "酒馆",
+            "客栈",
+            "山洞",
+            "森林",
+            "山顶",
+            "悬崖",
+            "大殿",
+            "广场",
+            "街道",
+            "小巷",
+            "皇宫",
+            "宗门",
+            "修炼场",
+            "书房",
+            "卧室",
+            "厨房",
+            "花园",
+            "湖边",
+            "河边",
+            "海边",
+            "沙漠",
         ]
 
         for chapter in chapters:
@@ -362,7 +480,7 @@ class ScenePackManager:
             info_path = scene_dir / "scene_pack.json"
             if info_path.exists():
                 try:
-                    with open(info_path, 'r', encoding='utf-8') as f:
+                    with open(info_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     packs[scene_dir.name] = ScenePack(**data)
                 except Exception:

@@ -71,7 +71,7 @@ LLM_GLOBAL_CONFIG = {
 # 请在环境变量中设置 NVIDIA_NIM_API_KEY
 NVIDIA_NIM_CONFIG = {
     "base_url": os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"), # /chat/completions
-    "api_key": os.getenv("NVIDIA_NIM_API_KEY", ""),
+    "api_key": os.getenv("NVIDIA_NIM_API_KEY"),  # 必须设置环境变量，不提供默认值
     "model": os.getenv("NVIDIA_NIM_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
     # openai/gpt-oss-120b
     # nvidia/nemotron-3-super-120b-a12b

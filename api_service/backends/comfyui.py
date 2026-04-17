@@ -7,6 +7,7 @@ ComfyUI HTTP API + WebSocket 推理封装
   2. WebSocket /ws?clientId=...  → 监听 progress / executing / executed 事件
   3. GET /history/{prompt_id}  → 拉取最终输出文件列表
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -102,7 +103,9 @@ class ComfyUIBackend:
 
         return [f for f in files if f]
 
-    async def _download_file(self, filename: str, dest_dir: Path, subfolder: str = "") -> Path:
+    async def _download_file(
+        self, filename: str, dest_dir: Path, subfolder: str = ""
+    ) -> Path:
         """从 ComfyUI /view 接口下载文件到本地"""
         params: Dict[str, str] = {"filename": filename}
         if subfolder:
@@ -225,6 +228,7 @@ class ComfyUIBackend:
 
 # ── workflow 参数注入辅助 ─────────────────────────────────────────────────────
 
+
 def _patch_image_workflow(
     workflow: Dict,
     prompt: str,
@@ -244,10 +248,11 @@ def _patch_image_workflow(
       - title "sampler"  → KSampler 节点 (seed, steps, cfg)
       - title "latent"   → EmptyLatentImage (width, height)
       - title "loader"   → CheckpointLoaderSimple (ckpt_name)
-    
+
     如果 workflow 不含上述 title，直接返回原始 workflow（使用模板默认值）。
     """
     import copy
+
     wf = copy.deepcopy(workflow)
 
     for node_id, node in wf.items():
@@ -262,7 +267,8 @@ def _patch_image_workflow(
         elif "negative" in title and "text" in inputs:
             inputs["text"] = negative_prompt
         elif "sampler" in title or node.get("class_type", "") in (
-            "KSampler", "KSamplerAdvanced"
+            "KSampler",
+            "KSamplerAdvanced",
         ):
             if seed != -1:
                 inputs["seed"] = seed
@@ -271,7 +277,9 @@ def _patch_image_workflow(
         elif "latent" in title or node.get("class_type", "") == "EmptyLatentImage":
             inputs["width"] = width
             inputs["height"] = height
-        elif "loader" in title or node.get("class_type", "") == "CheckpointLoaderSimple":
+        elif (
+            "loader" in title or node.get("class_type", "") == "CheckpointLoaderSimple"
+        ):
             if model:
                 inputs["ckpt_name"] = model
 
@@ -293,6 +301,7 @@ def _patch_video_workflow(
 ) -> Dict:
     """将图生视频参数注入 workflow"""
     import copy
+
     wf = copy.deepcopy(workflow)
 
     for node_id, node in wf.items():
@@ -310,17 +319,23 @@ def _patch_video_workflow(
             inputs["text"] = negative_prompt
         elif class_type in ("LoadImage", "ImageLoader") or "load image" in title:
             inputs["image"] = image_path
-        elif "sampler" in title or class_type in ("KSampler", "KSamplerAdvanced"):
+        elif "sampler" in title or class_type in (
+            "KSampler",
+            "KSamplerAdvanced",
+            "WanVideoSampler",
+        ):
             if seed != -1:
                 inputs["seed"] = seed
         elif class_type == "ImageResizeNode" or "resize" in title:
             inputs["width"] = width
             inputs["height"] = height
-        elif "frame" in title or class_type in ("SVDFrameCount",):
+        elif "frame" in title or class_type in ("SVDFrameCount", "WanVideoSampler"):
             inputs["num_frames"] = num_frames
         elif "loader" in title or class_type == "CheckpointLoaderSimple":
             if model:
                 inputs["ckpt_name"] = model
+        elif class_type == "VHS_VideoCombine":
+            inputs["frame_rate"] = fps
 
     return wf
 
