@@ -8,41 +8,70 @@
   },
   "backends": {
     "llm": {
-      "type": "llama_cpp",
-      "base_url": "http://localhost:8080/v1",
-      "model": "qwen3-14b",
+      "type": "nvidia_nim",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_key": "${NVIDIA_NIM_API_KEY}",
+      "model": "nvidia/nemotron-3-super-120b-a12b",
       "timeout_seconds": 300,
       "max_retries": 3
     },
     "image": {
       "type": "comfyui",
       "base_url": "http://localhost:8188",
-      "default_workflow": "t2i_flux",
+      "default_workflow": "t2i_z_image_turbo",
       "timeout_seconds": 120,
-      "client_id": "novel-video-pipeline"
+      "client_id": "novel-video-pipeline",
+      "default_model": "Z-image-turbo",
+      "default_size": {
+        "width": 640,
+        "height": 480
+      }
     },
     "video": {
       "type": "comfyui",
       "base_url": "http://localhost:8188",
-      "default_workflow": "i2v_wan",
+      "default_workflow": "i2v_wan22",
       "timeout_seconds": 600,
-      "client_id": "novel-video-pipeline"
+      "client_id": "novel-video-pipeline",
+      "default_model": "wan22_i2v",
+      "default_params": {
+        "num_frames": 81,
+        "fps": 24,
+        "width": 640,
+        "height": 480
+      }
     },
     "tts": {
-      "type": "fish_audio",
-      "api_key": "",
-      "base_url": "https://api.fish.audio",
-      "ws_url": "wss://api.fish.audio/v1/tts",
-      "default_voice_id": "",
+      "type": "edge_tts",
+      "backend": "edge_tts",
+      "default_voice": "zh-CN-XiaoxiaoNeural",
       "default_format": "mp3",
-      "timeout_seconds": 60
+      "timeout_seconds": 60,
+      "voices": {
+        "narrator": "zh-CN-XiaoxiaoNeural",
+        "male_1": "zh-CN-YunxiNeural",
+        "male_2": "zh-CN-YunjianNeural",
+        "male_3": "zh-CN-YunyangNeural",
+        "female_1": "zh-CN-XiaoyiNeural",
+        "female_2": "zh-CN-liaoning-XiaobeiNeural",
+        "female_3": "zh-CN-XiaohanNeural"
+      },
+      "edge_tts": {
+        "type": "edge_tts",
+        "default_voice": "zh-CN-XiaoxiaoNeural"
+      },
+      "chat_tts": {
+        "type": "chat_tts",
+        "sample_rate": 24000,
+        "speed": 1.0
+      }
     },
     "bgm": {
-      "type": "ace_step",
-      "model_path": "models/sound/ace-step-v1.5",
-      "device": "cuda",
-      "default_duration_seconds": 30,
-      "timeout_seconds": 180
+      "type": "comfyui",
+      "base_url": "http://localhost:8188",
+      "default_workflow": "bgm_ace_step",
+      "timeout_seconds": 300,
+      "client_id": "novel-video-pipeline"
     }
   }
 }

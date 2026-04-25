@@ -1,69 +1,283 @@
 #!/usr/bin/env python3
 """
-Asset-First Pipeline Runner - 资产优先流水线
+Pipeline Runner - 通过 FastAPI 调用完成从小说生成到视频生成的整个流程
 
-统一运行整个工作流：
-- Phase 1: 预生产 - 角色包 + 场景包生成
-- Phase 2: 正式生产 - TTS优先 → 关键帧 → 视频
-- Phase 3: 后期合成 - 视频拼接 + 音频混合 + 字幕
+所有 AI 服务（LLM、Image、TTS、Video）均通过 FastAPI 网关调用。
+默认 provider 配置：
+  - LLM: NVIDIA NIM (nemotron-3-super-120b-a12b)
+  - Image: ComfyUI + Z-Image-Turbo (640x480)
+  - Video: ComfyUI + Wan2.2 I2V (640x480)
+  - TTS: Edge TTS
 
 用法:
     python run_pipeline.py --project-id "test_project" --chapter 1
     python run_pipeline.py --project-id "test_project" --all-chapters
-    python run_pipeline.py --project-id "test_project" --phase 1  # 只运行 Phase 1
+    python run_pipeline.py --project-id "test_project" --phase 1
 """
 
 import asyncio
 import argparse
 import json
 import sys
+import time
+import uuid
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
+
+import httpx
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from core.storage import ProjectStorage, create_project_storage
-from core.config_models import (
-    ProjectPreset,
-    ChapterManifest,
-    ShotSpec,
-    create_default_project_preset,
-    VideoMode,
-    ShotStatus,
-)
-from stages.stage1_novel.models import Novel, Chapter, Character, StoryBlueprint
-from stages.stage2_visual.character_pack_generator import CharacterPackManager
-from stages.stage2_visual.scene_pack_generator import ScenePackManager
-from stages.stage2_visual.image_generator import ImageGenerator
-from stages.stage3_audio.tts_engine import TTSEngine
-from stages.stage4_merge.video_composer import VideoComposer
-from config.settings import NOVELS_DIR, get_config, IMAGE_GENERATION, VIDEO_GENERATION
+
+# ── FastAPI 客户端 ─────────────────────────────────────────────────────────────
+
+class APIClient:
+    """FastAPI 服务客户端"""
+
+    def __init__(self, base_url: str = "http://localhost:9000"):
+        self.base_url = base_url.rstrip("/")
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(base_url=self.base_url, timeout=300.0)
+        return self._client
+
+    async def close(self):
+        if self._client:
+            await self._client.aclose()
+            self._client = None
+
+    # ── LLM ────────────────────────────────────────────────────────────────────
+
+    async def llm_generate(self, messages: List[Dict], max_tokens: int = 4096,
+                          temperature: float = 0.7, stream: bool = False) -> Dict:
+        """调用 LLM 生成文本"""
+        client = await self._get_client()
+        payload = {
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": stream,
+        }
+        resp = await client.post("/llm/generate", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def llm_stream(self, messages: List[Dict], max_tokens: int = 4096,
+                        temperature: float = 0.7) -> str:
+        """调用 LLM 流式生成文本"""
+        client = await self._get_client()
+        payload = {
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        async with client.stream("POST", "/llm/stream", json=payload) as resp:
+            resp.raise_for_status()
+            full_content = ""
+            async for line in resp.aiter_lines():
+                if line.startswith("data: "):
+                    if line == "data: [DONE]":
+                        break
+                    try:
+                        content = json.loads(line[6:])
+                        if content:
+                            full_content += content
+                    except json.JSONDecodeError:
+                        continue
+            return full_content
+
+    async def llm_health(self) -> bool:
+        """检查 LLM 健康状态"""
+        try:
+            client = await self._get_client()
+            resp = await client.get("/llm/health")
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    # ── Image ─────────────────────────────────────────────────────────────────
+
+    async def image_generate(self, prompt: str, negative_prompt: str = "",
+                            width: int = 640, height: int = 480,
+                            steps: int = 20, cfg: float = 7.0,
+                            seed: int = -1, model: str = "",
+                            workflow: str = "") -> str:
+        """提交图像生成任务，返回 task_id"""
+        client = await self._get_client()
+        payload = {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "width": width,
+            "height": height,
+            "steps": steps,
+            "cfg": cfg,
+            "seed": seed,
+            "model": model,
+            "workflow": workflow,
+        }
+        resp = await client.post("/image/generate", json=payload)
+        resp.raise_for_status()
+        return resp.json()["task_id"]
+
+    async def image_wait(self, task_id: str, poll_interval: float = 2.0,
+                        max_wait: float = 300.0) -> Dict:
+        """等待图像生成任务完成"""
+        client = await self._get_client()
+        start = time.monotonic()
+        while time.monotonic() - start < max_wait:
+            resp = await client.get(f"/image/tasks/{task_id}")
+            resp.raise_for_status()
+            data = resp.json()
+            if data["status"] == "completed":
+                return data["result"]
+            elif data["status"] == "failed":
+                raise RuntimeError(f"Image generation failed: {data.get('error', 'unknown')}")
+            await asyncio.sleep(poll_interval)
+        raise TimeoutError(f"Image generation timed out after {max_wait}s")
+
+    async def image_health(self) -> bool:
+        try:
+            client = await self._get_client()
+            resp = await client.get("/image/health")
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    # ── Video ─────────────────────────────────────────────────────────────────
+
+    async def video_generate(self, image_url: str, prompt: str = "",
+                            motion_prompt: str = "", negative_prompt: str = "",
+                            num_frames: int = 81, fps: int = 24,
+                            width: int = 640, height: int = 480,
+                            seed: int = -1, model: str = "",
+                            workflow: str = "") -> str:
+        """提交视频生成任务，返回 task_id"""
+        client = await self._get_client()
+        payload = {
+            "image_url": image_url,
+            "prompt": prompt,
+            "motion_prompt": motion_prompt,
+            "negative_prompt": negative_prompt,
+            "num_frames": num_frames,
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "seed": seed,
+            "model": model,
+            "workflow": workflow,
+        }
+        resp = await client.post("/video/generate", json=payload)
+        resp.raise_for_status()
+        return resp.json()["task_id"]
+
+    async def video_wait(self, task_id: str, poll_interval: float = 5.0,
+                        max_wait: float = 600.0) -> Dict:
+        """等待视频生成任务完成"""
+        client = await self._get_client()
+        start = time.monotonic()
+        while time.monotonic() - start < max_wait:
+            resp = await client.get(f"/video/tasks/{task_id}")
+            resp.raise_for_status()
+            data = resp.json()
+            if data["status"] == "completed":
+                return data["result"]
+            elif data["status"] == "failed":
+                raise RuntimeError(f"Video generation failed: {data.get('error', 'unknown')}")
+            await asyncio.sleep(poll_interval)
+        raise TimeoutError(f"Video generation timed out after {max_wait}s")
+
+    async def video_health(self) -> bool:
+        try:
+            client = await self._get_client()
+            resp = await client.get("/video/health")
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    # ── TTS ────────────────────────────────────────────────────────────────────
+
+    async def tts_synthesize(self, text: str, voice: str = "zh-CN-XiaoxiaoNeural",
+                            rate: str = "+0%", pitch: str = "+0Hz",
+                            format: str = "mp3") -> str:
+        """提交 TTS 合成任务，返回 task_id"""
+        client = await self._get_client()
+        payload = {
+            "text": text,
+            "voice": voice,
+            "rate": rate,
+            "pitch": pitch,
+            "format": format,
+        }
+        resp = await client.post("/tts/synthesize", json=payload)
+        resp.raise_for_status()
+        return resp.json()["task_id"]
+
+    async def tts_wait(self, task_id: str, poll_interval: float = 2.0,
+                       max_wait: float = 120.0) -> Dict:
+        """等待 TTS 任务完成"""
+        client = await self._get_client()
+        start = time.monotonic()
+        while time.monotonic() - start < max_wait:
+            resp = await client.get(f"/tasks/{task_id}")
+            resp.raise_for_status()
+            data = resp.json()
+            if data["status"] == "completed":
+                return data["result"]
+            elif data["status"] == "failed":
+                raise RuntimeError(f"TTS synthesis failed: {data.get('error', 'unknown')}")
+            await asyncio.sleep(poll_interval)
+        raise TimeoutError(f"TTS synthesis timed out after {max_wait}s")
+
+    async def tts_health(self) -> bool:
+        try:
+            client = await self._get_client()
+            resp = await client.get("/tts/health")
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    # ── Health ─────────────────────────────────────────────────────────────────
+
+    async def full_health(self) -> Dict:
+        """获取所有后端健康状态"""
+        client = await self._get_client()
+        resp = await client.get("/health")
+        resp.raise_for_status()
+        return resp.json()
 
 
-class AssetFirstPipeline:
-    """
-    资产优先流水线
+# ── Pipeline ───────────────────────────────────────────────────────────────────
 
-    Phase 1: 角色包 + 场景包 → Phase 2: TTS → 关键帧 → 视频 → Phase 3: 合成
-    """
+class PipelineRunner:
+    """通过 FastAPI 调用完成整个流水线"""
 
-    def __init__(self, project_id: str, config: Dict = None):
+    def __init__(self, project_id: str, api_url: str = "http://localhost:9000"):
         self.project_id = project_id
-        self.config = config or get_config()
-        self.storage = ProjectStorage(project_id, NOVELS_DIR.parent)
-        self.novel: Optional[Novel] = None
-        self.project_preset: Optional[ProjectPreset] = None
+        self.api = APIClient(api_url)
+        self.output_dir = Path("outputs") / project_id
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 子系统管理器
-        self.character_manager = CharacterPackManager(self.storage)
-        self.scene_manager = ScenePackManager(self.storage)
-        self.image_generator = ImageGenerator(IMAGE_GENERATION)
-        self.tts_engine = TTSEngine()
-        self.video_composer = VideoComposer()
+    async def close(self):
+        await self.api.close()
 
-        self.generated_images: Dict[int, Any] = {}
-        self.generated_audio: Dict[int, Any] = {}
+    async def check_health(self) -> bool:
+        """检查所有服务健康状态"""
+        print("\n🔍 检查服务健康状态...")
+        try:
+            health = await self.api.full_health()
+            all_ok = health.get("healthy", False)
+            print(f"   整体状态: {'✅ 健康' if all_ok else '⚠️  部分异常'}")
+            for b in health.get("backends", []):
+                status = "✅" if b["healthy"] else "❌"
+                print(f"   {status} {b['name']}")
+            return True
+        except Exception as e:
+            print(f"   ⚠️  无法获取健康状态: {e}")
+            return False
 
     async def run(
         self,
@@ -72,351 +286,236 @@ class AssetFirstPipeline:
         phase: Optional[int] = None,
         force_regenerate: bool = False,
     ):
-        """
-        运行流水线
-
-        Args:
-            chapter_number: 指定章节号
-            all_chapters: 是否运行所有章节
-            phase: 指定阶段 (1, 2, 3)
-            force_regenerate: 是否强制重新生成
-        """
+        """运行流水线"""
         print("\n" + "=" * 70)
-        print("🎬 资产优先流水线启动")
+        print("🎬 AI Novel Video Pipeline 启动")
         print("=" * 70)
         print(f"项目ID: {self.project_id}")
+        print(f"API: {self.api.base_url}")
         print(f"阶段: {phase or '全部'}")
-        print(f"章节: {chapter_number or '全部' if all_chapters else '未指定'}")
         print("=" * 70)
 
-        # 确保目录存在
-        self.storage.ensure_directories()
+        # 健康检查
+        await self.check_health()
 
-        # 加载或创建项目预设
-        await self._load_or_create_project_preset()
-
-        # Phase 1: 预生产
+        # Phase 1: 小说生成 (LLM)
         if phase is None or phase == 1:
-            await self._run_phase_1(force_regenerate)
+            await self._run_phase1_novel()
 
-        # Phase 2: 正式生产
+        # Phase 2: 图像 + TTS + 视频
         if phase is None or phase == 2:
+            chapters = [chapter_number] if chapter_number else list(range(1, 4))  # 默认3章
             if all_chapters:
-                chapters = self._get_all_chapters()
-            elif chapter_number:
-                chapters = [chapter_number]
-            else:
-                chapters = []
-
+                chapters = list(range(1, 4))
             for ch in chapters:
-                await self._run_phase_2(chapter_number=ch)
-
-        # Phase 3: 后期合成
-        if phase is None or phase == 3:
-            if all_chapters:
-                chapters = self._get_all_chapters()
-            elif chapter_number:
-                chapters = [chapter_number]
-            else:
-                chapters = []
-
-            await self._run_phase_3(chapters)
+                await self._run_phase2_media(ch)
 
         print("\n" + "=" * 70)
         print("✅ 流水线执行完成!")
         print("=" * 70)
 
-    async def _load_or_create_project_preset(self):
-        """加载或创建项目预设"""
-        preset_path = self.storage.get_project_preset_path()
-
-        if preset_path.exists():
-            print(f"\n📂 加载项目预设: {preset_path}")
-            self.project_preset = ProjectPreset.load(self.storage.get_project_dir())
-        else:
-            print(f"\n📂 创建新项目预设")
-            # 从故事蓝图中加载
-            bible_path = self.storage.get_story_bible_path()
-            if bible_path.exists():
-                with open(bible_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                title = data.get("metadata", {}).get("title", self.project_id)
-                genre = data.get("metadata", {}).get("genre", "修仙")
-            else:
-                title = self.project_id
-                genre = "修仙"
-
-            self.project_preset = create_default_project_preset(
-                project_id=self.project_id,
-                title=title,
-                genre=genre,
-            )
-            self.project_preset.save(self.storage.get_project_dir())
-
-        print(f"   项目: {self.project_preset.title}")
-        print(f"   类型: {self.project_preset.genre}")
-        print(f"   风格: {self.project_preset.visual_style}")
-
-    async def _run_phase_1(self, force_regenerate: bool = False):
-        """
-        Phase 1: 预生产 - 角色包 + 场景包生成
-        """
+    async def _run_phase1_novel(self):
+        """Phase 1: 使用 LLM 生成小说"""
         print("\n" + "-" * 60)
-        print("📦 Phase 1: 预生产")
+        print("📝 Phase 1: 小说生成 (NVIDIA NIM LLM)")
         print("-" * 60)
 
-        # 加载小说数据
-        self._load_novel()
+        # 系统提示词
+        system_prompt = """你是一个专业的小说作家，擅长创作修仙、玄幻类型的故事。
+请根据用户需求生成小说内容，要求：
+1. 情节紧凑，高潮迭起
+2. 角色鲜明，对话生动
+3. 场景描写丰富，画面感强
+4. 每章3000-5000字"""
 
-        if not self.novel:
-            print("⚠️  未找到小说数据，跳过 Phase 1")
-            return
+        # 用户请求
+        user_request = f"""为项目 {self.project_id} 创作一个修仙小说章节。
 
-        # 1. 生成角色包
-        if self.project_preset.enabled_services.get("character_pack", True):
-            print("\n🎭 生成角色包...")
-            await self.character_manager.generate_all_packs(
-                self.novel.blueprint.characters,
-                force_regenerate=force_regenerate,
-            )
+要求：
+- 主角获得神秘传承
+- 有战斗场面
+- 有成长和突破
+- 结尾有悬念
 
-        # 2. 生成场景包
-        if self.project_preset.enabled_services.get("scene_pack", True):
-            print("\n🏠 生成场景包...")
-            await self.scene_manager.generate_packs_from_chapters(
-                self.novel.chapters,
-                force_regenerate=force_regenerate,
-            )
+请生成第一章内容。"""
 
-        print("\n✅ Phase 1 完成")
-
-    async def _run_phase_2(self, chapter_number: int):
-        """
-        Phase 2: 正式生产 - TTS优先，然后关键帧，然后视频
-        """
-        print("\n" + "-" * 60)
-        print(f"📹 Phase 2: 正式生产 (第 {chapter_number} 章)")
-        print("-" * 60)
-
-        # 加载小说数据
-        self._load_novel()
-
-        if not self.novel:
-            print("⚠️  未找到小说数据，跳过 Phase 2")
-            return
-
-        # 找到对应章节
-        chapter = None
-        for ch in self.novel.chapters:
-            if ch.number == chapter_number:
-                chapter = ch
-                break
-
-        if not chapter:
-            print(f"⚠️  未找到第 {chapter_number} 章")
-            return
-
-        # Step 1: TTS 先生成（音频长度决定视频长度）
-        if self.project_preset.enabled_services.get("tts", True):
-            print("\n🔊 Step 2.1: 生成 TTS 音频...")
-            audio_results = await self.tts_engine.process(self.novel)
-            if audio_results:
-                self.generated_audio[chapter_number] = audio_results
-            print(f"   ✅ TTS 生成完成")
-
-        # Step 2: 生成关键帧图像
-        print("\n🎨 Step 2.2: 生成关键帧...")
-        script_lines = self.storage.load_script_lines(chapter_number)
-        if script_lines:
-            print(f"   加载了 {len(script_lines)} 个镜头")
-        else:
-            print("   ⚠️  未找到脚本，将使用章节内容生成关键帧")
-
-        chapter_images = await self.image_generator.process(self.novel)
-        if chapter_images:
-            self.generated_images[chapter_number] = chapter_images.get(chapter_number)
-            total = (
-                len(self.generated_images[chapter_number].images)
-                if self.generated_images.get(chapter_number)
-                else 0
-            )
-            print(f"   ✅ 生成了 {total} 张关键帧")
-
-        # Step 3: 生成视频 (如果启用)
-        video_enabled = VIDEO_GENERATION.get("image_to_video", {}).get("enabled", False)
-        if video_enabled and self.generated_images.get(chapter_number):
-            print("\n🎬 Step 2.3: 生成视频...")
-            images = self.generated_images[chapter_number]
-            for i, img in enumerate(images.images):
-                try:
-                    video_path = await self.image_generator._generate_video_from_image(
-                        image_path=Path(img.file_path),
-                        chapter_number=chapter_number,
-                        video_index=i + 1,
-                        scene_description=img.scene_description,
-                    )
-                    print(f"   ✅ 视频 {i + 1} 生成完成")
-                except Exception as e:
-                    print(f"   ⚠️  视频 {i + 1} 生成失败: {e}")
-
-        print(f"\n✅ Phase 2 ({chapter_number}) 完成")
-
-    async def _run_phase_3(self, chapters: List[int]):
-        print("\n" + "-" * 60)
-        print("🎞️ Phase 3: 后期合成")
-        print("-" * 60)
-
-        if not chapters:
-            print("⚠️  没有章节可处理")
-            return
-
-        if not self.video_composer.ffmpeg_available:
-            print("⚠️  FFmpeg 未安装，跳过视频合成")
-            return
-
-        from stages.stage2_visual.image_generator import ChapterImages
-        from stages.stage3_audio.tts_engine import ChapterAudio
-
-        input_data = {
-            "novel": self.novel,
-            "images": self.generated_images,
-            "audio": self.generated_audio,
-        }
-
+        print("   📡 调用 NVIDIA NIM LLM...")
         try:
-            final_videos = await self.video_composer.process(input_data)
-            print(f"\n✅ Phase 3 完成，生成了 {len(final_videos)} 个最终视频")
-            for ch, video in final_videos.items():
-                print(f"   第{ch}章: {video.video_path}")
+            result = await self.api.llm_generate(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_request},
+                ],
+                max_tokens=8000,
+                temperature=0.7,
+            )
+            content = result.get("content", "")
+            print(f"   ✅ 生成文本 {len(content)} 字符")
+
+            # 保存到文件
+            novel_path = self.output_dir / "novel" / f"chapter_1.txt"
+            novel_path.parent.mkdir(parents=True, exist_ok=True)
+            novel_path.write_text(content, encoding="utf-8")
+            print(f"   💾 已保存: {novel_path}")
+
+            return content
         except Exception as e:
-            print(f"⚠️  视频合成失败: {e}")
+            print(f"   ❌ LLM 调用失败: {e}")
+            return ""
 
-    def _load_novel(self):
-        """加载小说数据"""
-        if self.novel:
+    async def _run_phase2_media(self, chapter_number: int):
+        """Phase 2: 生成图像、TTS、Video"""
+        print("\n" + "-" * 60)
+        print(f"🎬 Phase 2: 媒体生成 (第 {chapter_number} 章)")
+        print("-" * 60)
+
+        # 加载章节内容
+        chapter_path = self.output_dir / "novel" / f"chapter_{chapter_number}.txt"
+        if not chapter_path.exists():
+            print(f"   ⚠️  章节文件不存在: {chapter_path}")
             return
 
-        bible_path = self.storage.get_story_bible_path()
-        if not bible_path.exists():
-            return
+        chapter_content = chapter_path.read_text(encoding="utf-8")
+        print(f"   📖 加载章节内容: {len(chapter_content)} 字符")
 
-        try:
-            with open(bible_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+        # 1. 生成关键帧图像
+        print("\n   🎨 Step 1: 生成关键帧图像...")
+        await self._generate_keyframes(chapter_number, chapter_content)
 
-            # 重建 Novel 对象
-            blueprint_data = data.get("blueprint", {})
-            metadata = data.get("metadata", {})
+        # 2. 生成 TTS 音频
+        print("\n   🔊 Step 2: 生成 TTS 音频...")
+        await self._generate_tts_audio(chapter_number, chapter_content)
 
-            # 重建 WorldBuilding
-            from stages.stage1_novel.models import WorldBuilding, Character, PlotPoint
+        # 3. 生成视频
+        print("\n   🎬 Step 3: 生成视频...")
+        await self._generate_videos(chapter_number)
 
-            wb_data = blueprint_data.get("world_building", {})
-            world_building = WorldBuilding(
-                setting=wb_data.get("setting", ""),
-                power_system=wb_data.get("power_system", ""),
-                factions=wb_data.get("factions", []),
-                rules=wb_data.get("rules", []),
-            )
+    async def _generate_keyframes(self, chapter_number: int, content: str):
+        """生成关键帧图像"""
+        # 提取场景描述（简化处理，实际应该用 LLM 分析）
+        scenes = [
+            f"玄幻修仙场景，神秘山洞，光芒照耀，云雾缭绕",
+            f"战斗场景，主角施展法术，能量爆发，特效光效",
+            f"修炼场景，打坐冥想，灵气汇聚，星空背景",
+        ]
 
-            # 重建 Characters
-            characters = [Character(**c) for c in blueprint_data.get("characters", [])]
-
-            # 重建 PlotStructure
-            plot_structure = [
-                PlotPoint(**p) for p in blueprint_data.get("plot_structure", [])
-            ]
-
-            blueprint = StoryBlueprint(
-                title=blueprint_data.get("title", ""),
-                genre=blueprint_data.get("genre", ""),
-                world_building=world_building,
-                characters=characters,
-                plot_structure=plot_structure,
-                chapter_plans=blueprint_data.get("chapter_plans", []),
-            )
-
-            # 加载章节
-            chapters = []
-            chapter_numbers = self.storage.list_chapters()
-            for ch_num in chapter_numbers:
-                content = self.storage.load_chapter_content(ch_num)
-                summary = self.storage.load_chapter_summary(ch_num)
-                chapters.append(
-                    Chapter(
-                        number=ch_num,
-                        title=summary.get("title", f"第{ch_num}章"),
-                        content=content,
-                        word_count=summary.get("word_count", 0),
-                        summary=summary.get("summary", ""),
-                        key_events=summary.get("key_events", []),
-                        character_appearances=summary.get("character_appearances", []),
-                    )
+        for i, scene_prompt in enumerate(scenes):
+            print(f"   生成图像 {i+1}/{len(scenes)}...")
+            try:
+                task_id = await self.api.image_generate(
+                    prompt=scene_prompt,
+                    negative_prompt="blurry, low quality, bad anatomy",
+                    width=640,
+                    height=480,
+                    steps=20,
                 )
+                result = await self.api.image_wait(task_id)
+                images = result.get("images", [])
+                if images:
+                    print(f"      ✅ 生成: {images[0].get('url', 'N/A')}")
+            except Exception as e:
+                print(f"      ❌ 失败: {e}")
 
-            self.novel = Novel(
-                metadata=metadata,
-                blueprint=blueprint,
-                chapters=chapters,
-            )
+    async def _generate_tts_audio(self, chapter_number: int, content: str):
+        """生成 TTS 音频"""
+        # 简单分段处理
+        paragraphs = content.split("\n\n")[:5]  # 只处理前5段
 
-        except Exception as e:
-            print(f"⚠️  加载小说失败: {e}")
+        for i, para in enumerate(paragraphs):
+            if len(para) < 20:
+                continue
+            print(f"   生成音频 {i+1}/{len(paragraphs)}...")
+            try:
+                task_id = await self.api.tts_synthesize(
+                    text=para[:500],  # 限制长度
+                    voice="zh-CN-XiaoxiaoNeural",
+                    rate="+0%",
+                )
+                result = await self.api.tts_wait(task_id)
+                audio_url = result.get("audio_url", "")
+                if audio_url:
+                    print(f"      ✅ 生成: {audio_url}")
+            except Exception as e:
+                print(f"      ❌ 失败: {e}")
 
-    def _get_all_chapters(self) -> List[int]:
-        """获取所有章节号"""
-        return self.storage.list_chapters()
+    async def _generate_videos(self, chapter_number: int):
+        """生成视频（从已生成的图像）"""
+        # 图像保存在全局 outputs/images/ 目录
+        images_dir = Path("outputs") / "images"
+        if not images_dir.exists():
+            print("   ⚠️  无图像文件，跳过视频生成")
+            return
 
+        image_files = list(images_dir.glob("*.png")) + list(images_dir.glob("*.jpg"))
+        if not image_files:
+            print("   ⚠️  无图像文件，跳过视频生成")
+            return
+
+        print(f"   找到 {len(image_files)} 张图像")
+
+        for img_file in image_files[:2]:  # 只处理前2张
+            print(f"   生成视频: {img_file.name}...")
+            try:
+                # 图像路径转为 /files/ URL（outputs/images/ -> /files/outputs/images/）
+                image_url = f"/files/outputs/images/{img_file.name}"
+
+                task_id = await self.api.video_generate(
+                    image_url=image_url,
+                    prompt="cinematic smooth motion",
+                    motion_prompt="slow movement, high quality",
+                    num_frames=81,
+                    fps=24,
+                    width=640,
+                    height=480,
+                )
+                result = await self.api.video_wait(task_id, max_wait=600)
+                video_url = result.get("video_url", "")
+                if video_url:
+                    print(f"      ✅ 生成: {video_url}")
+            except Exception as e:
+                print(f"      ❌ 失败: {e}")
+
+
+# ── Main ────────────────────────────────────────────────────────────────────────
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="资产优先流水线 - 统一运行整个工作流",
+        description="AI Novel Video Pipeline - 通过 FastAPI 调用完成整个流程",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+默认 Provider 配置:
+  - LLM: NVIDIA NIM (nemotron-3-super-120b-a12b)
+  - Image: ComfyUI + Z-Image-Turbo (640x480)
+  - Video: ComfyUI + Wan2.2 I2V (640x480)
+  - TTS: Edge TTS
+
 示例:
   # 运行完整流水线
   python run_pipeline.py --project-id "test_project"
 
-  # 只运行 Phase 1 (角色/场景包)
+  # 只运行 Phase 1 (小说生成)
   python run_pipeline.py --project-id "test_project" --phase 1
 
-  # 指定章节运行
+  # 指定章节
   python run_pipeline.py --project-id "test_project" --chapter 1
-
-  # 运行所有章节
-  python run_pipeline.py --project-id "test_project" --all-chapters
-
-  # 强制重新生成
-  python run_pipeline.py --project-id "test_project" --all-chapters --force
         """,
     )
 
     parser.add_argument("--project-id", "-p", type=str, required=True, help="项目ID")
+    parser.add_argument("--api-url", "-u", type=str, default="http://localhost:9000",
+                       help="FastAPI 服务地址")
     parser.add_argument("--chapter", "-c", type=int, help="指定章节号")
-    parser.add_argument(
-        "--all-chapters", "-a", action="store_true", help="运行所有章节"
-    )
-    parser.add_argument(
-        "--phase",
-        type=int,
-        choices=[1, 2, 3],
-        help="指定阶段 (1=预生产, 2=正式生产, 3=后期合成)",
-    )
-    parser.add_argument(
-        "--force", "-f", action="store_true", help="强制重新生成所有资产"
-    )
+    parser.add_argument("--all-chapters", "-a", action="store_true", help="运行所有章节")
+    parser.add_argument("--phase", type=int, choices=[1, 2, 3],
+                       help="指定阶段 (1=小说, 2=媒体, 3=合成)")
+    parser.add_argument("--force", "-f", action="store_true", help="强制重新生成")
 
     args = parser.parse_args()
 
-    # 验证参数
-    if not args.all_chapters and not args.phase and not args.chapter:
-        parser.error("请指定 --chapter 或 --all-chapters 或 --phase")
-
-    # 创建并运行流水线
-    pipeline = AssetFirstPipeline(args.project_id)
+    runner = PipelineRunner(args.project_id, args.api_url)
 
     try:
-        await pipeline.run(
+        await runner.run(
             chapter_number=args.chapter,
             all_chapters=args.all_chapters,
             phase=args.phase,
@@ -427,9 +526,10 @@ async def main():
     except Exception as e:
         print(f"\n❌ 执行错误: {e}")
         import traceback
-
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        await runner.close()
 
 
 if __name__ == "__main__":
