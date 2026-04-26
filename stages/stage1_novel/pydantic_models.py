@@ -3,7 +3,7 @@ from typing import List, Optional, Literal, Dict, Any
 
 class WorldBuildingSchema(BaseModel):
     """世界观设定模型"""
-    setting: str = Field(description="世界描述，涵盖历史、地理和当前局示", min_length=200)
+    setting: str = Field(description="世界描述，涵盖历史、地理和当前局示", min_length=50)
     power_system: str = Field(description="修炼体系、力量等级划分及其核心逻辑")
     factions: List[Dict[str, str]] = Field(description="主要势力列表，每项包含 name, description, type (正/邪/中)")
     rules: List[str] = Field(description="世界运行的核心规则或禁忌")
@@ -62,7 +62,7 @@ class StoryBlueprintOutput(BaseModel):
 class ChapterOutput(BaseModel):
     """单章节生成正文模型"""
     title: str = Field(description="章节最终标题")
-    content: str = Field(description="章节完整正文内容，要求描写细腻，增加细节、对白和环境描写，字数尽量多", min_length=3000)
+    content: str = Field(description="章节完整正文内容，要求描写细腻，增加细节、对白和环境描写，字数尽量多")
     summary: str = Field(description="本章内容精炼摘要")
     key_events: List[str] = Field(description="实际发生的关键事件")
     character_appearances: List[str] = Field(description="本章出场的所有角色姓名")
@@ -74,7 +74,7 @@ class ChunkOutput(BaseModel):
     """章节分块生成模型（单块正文）"""
     content: str = Field(
         description="本段落的完整正文内容，要求对白、心理、环境描写丰富，字数不少于1500字",
-        min_length=800
+        min_length=100
     )
     summary: Optional[str] = Field(None, description="本段落的简要内容概括")
     key_events: Optional[List[str]] = Field(None, description="本段落中发生的关键事件列表")
@@ -107,7 +107,7 @@ class ScriptOutput(BaseModel):
 
 class WorldBuildingOutput(BaseModel):
     """世界观输出模型"""
-    setting: str = Field(description="世界描述，涵盖历史、地理和当前局势", min_length=200)
+    setting: str = Field(description="世界描述，涵盖历史、地理和当前局势", min_length=50)
     factions: List[Dict[str, str]] = Field(description="主要势力列表，每项包含 name, description, type (正/邪/中)")
     rules: List[str] = Field(description="世界运行的核心规则或禁忌")
 

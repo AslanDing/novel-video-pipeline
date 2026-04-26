@@ -21,6 +21,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from core.llm_client import NVIDIA_NIM_Client
 from core.local_llm_client import get_local_llm_client
 from core.base_pipeline import PipelineStage
+from core.logger import get_logger
 from config.settings import (
     NOVELS_DIR,
     LOCAL_LLM_CONFIG,
@@ -69,6 +70,8 @@ from stages.stage1_novel.consistency_checker import ConsistencyChecker
 from stages.stage1_novel.rhythm_controller import RhythmController
 from stages.stage1_novel.script_generator import ScriptGenerator
 
+logger = get_logger("novel_generator")
+
 
 class NovelGenerator(PipelineStage):
     """
@@ -77,7 +80,7 @@ class NovelGenerator(PipelineStage):
     整合故事架构、章节生成和质量控制
     """
 
-    def __init__(self, llm_client=None, use_local_llm=False, config=None):
+    def __init__(self, llm_client=None, use_local_llm=False, config=None, use_mock=False):
         super().__init__("小说生成", config)
 
         # 如果未传入 client，则根据参数初始化
@@ -90,8 +93,19 @@ class NovelGenerator(PipelineStage):
                     temperature=LOCAL_LLM_CONFIG.get("temperature", 0.7),
                     max_tokens=LOCAL_LLM_CONFIG.get("max_tokens", 4096),
                 )
+            elif use_mock:
+                # 使用 Mock LLM 客户端 (用于测试或 API 未配置时)
+                from core.llm_client import MockLLMClient
+                self.llm_client = MockLLMClient()
             else:
-                self.llm_client = NVIDIA_NIM_Client()
+                # 尝试使用 NVIDIA NIM，自动降级到 mock
+                from core.llm_client import NVIDIA_NIM_Client, MockLLMClient
+                import os
+                if os.environ.get("NVIDIA_NIM_API_KEY"):
+                    self.llm_client = NVIDIA_NIM_Client()
+                else:
+                    logger.warning("NVIDIA_NIM_API_KEY 未设置，自动使用 Mock LLM 客户端")
+                    self.llm_client = MockLLMClient()
         else:
             self.llm_client = llm_client
         self.output_dir = None
@@ -106,7 +120,7 @@ class NovelGenerator(PipelineStage):
 
         # 长章节分块生成配置
         self.CHUNK_WORD_COUNT = 2000  # 每块目标字数（降低使 LLM 更容易写满）
-        self.MAX_TOKENS_LIMIT = 128000  # 最大 tokens 上限
+        self.MAX_TOKENS_LIMIT = 32000  # 最大 tokens 上限 (适中，兼顾长内容和稳定性)
         self.MIN_TOKENS = 8000  # 最小 tokens
 
         # 加载提示词
@@ -209,11 +223,11 @@ class NovelGenerator(PipelineStage):
                 shuangdian=shuangdian_plan.get(i),
             )
 
-            print(f"   🎬 正在为第{i}章拆分分镜脚本...")
-            try:
-                chapter = await self._adapt_to_script(chapter, blueprint)
-            except Exception as e:
-                print(f"   ⚠️ 第{i}章分镜脚本拆分失败: {e}")
+            # print(f"   🎬 正在为第{i}章拆分分镜脚本...")
+            # try:
+            #     chapter = await self._adapt_to_script(chapter, blueprint)
+            # except Exception as e:
+            #     print(f"   ⚠️ 第{i}章分镜脚本拆分失败: {e}")
 
             chapters.append(chapter)
 
@@ -553,8 +567,8 @@ class NovelGenerator(PipelineStage):
             chapter_number, blueprint, previous_chapters
         )
 
-        # 目标字数 > 3000 时分块生成，确保每次 LLM 调用只需写 2000 字
-        if concept.target_word_count > 3000:
+        # 只要达到分块阈值，就使用自适应分块生成，确保质量和字数
+        if concept.target_word_count >= self.CHUNK_WORD_COUNT:
             chapter = await self._generate_with_adaptive_chunking(
                 chapter_plan, blueprint, concept, context
             )

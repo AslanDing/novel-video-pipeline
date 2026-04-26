@@ -289,18 +289,14 @@ class NovelAPIClient:
     async def tts_synthesize(
         self,
         text: str,
-        voice_id: str = "",
-        speed: float = 1.0,
-        format: str = "mp3",
         wait: bool = True,
+        **kwargs
     ) -> AudioResult:
-        """TTS 语音合成（Fish Audio）"""
+        """TTS 语音合成"""
         payload = {
             "text": text,
-            "reference_id": voice_id,
-            "speed": speed,
-            "format": format,
         }
+        payload.update(kwargs)
         resp = await self._http.post("/tts/synthesize", json=payload)
         resp.raise_for_status()
         data = resp.json()

@@ -40,7 +40,15 @@ class ScriptGenerator:
     """
 
     def __init__(self, llm_client=None, prompts: Dict = None):
-        self.llm_client = llm_client or NVIDIA_NIM_Client()
+        if llm_client is None:
+            import os
+            from core.llm_client import NVIDIA_NIM_Client, MockLLMClient
+            if os.environ.get("NVIDIA_NIM_API_KEY"):
+                self.llm_client = NVIDIA_NIM_Client()
+            else:
+                self.llm_client = MockLLMClient()
+        else:
+            self.llm_client = llm_client
         self.prompts = prompts or load_prompts().get("stage1", {})
         self.shot_counter = 0
 

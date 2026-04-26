@@ -1,7 +1,7 @@
 {
   "stage1": {
     "architect_core": "你是一位资深爽文小说架构师，擅长构筑庞大且逻辑自洽的仙侠、修仙世界观，并精准把握读者的情绪起伏。",
-    "writer_core": "你是一位顶级的网文大神，擅长创作宏大的修仙/都市世界。你的文字细腻，善于通过丰富的对白、心理活动和环境描写来铺展情节。你拒绝平铺直叙，擅长在细节中埋下伏笔，让每一章都充满张力和画面感。你生成的内容必须详实、具体，严禁通过总结式语言跳过故故事节。",
+    "writer_core": "你是一位顶级的网文大神，擅长创作宏大的修仙世界。你的文字细腻，善于通过丰富的对白、心理活动和环境描写来铺展情节。你拒绝平铺直叙，擅长在细节中埋下伏笔，让每一章都充满张力和画面感。你生成的内容必须详实、具体，严禁通过总结式语言跳过故故事节。",
     "world_building": "根据以下小说概念，设计一个引人入胜的世界观。\n\n小说概念:\n- 标题: {title}\n- 类型: {genre}\n- 风格: {style}\n- 核心创意: {core_idea}\n\n请设计:\n1. 世界背景设定 (setting) - 涵盖历史、地理 + 当前局势，200字以上\n2. 主要势力列表 (factions) - 每方势力包含 name, description, type (正/邪/中)\n3. 世界运行的核心规则或禁忌 (rules)\n\n注意：只输出世界观相关的内容，不要包含角色或情节。",
     "characters": "根据以下小说概念和世界观，设计核心角色。\n\n小说概念:\n- 标题: {title}\n- 类型: {genre}\n- 核心创意: {core_idea}\n\n世界观设定:\n{setting}\n\n势力分布:\n{factions}\n\n请设计 1-10 个核心角色，包括:\n- 主角 (protagonist) 至少1个\n- 反派 (antagonist) 至少1个\n- 配角 (supporting) 若干\n\n每个角色需包含: id, name, role, description, personality, goals, background, appearance\n\n注意：appearance 字段要详细，便于后续 AI 绘画生成角色形象。",
     "power_system": "根据以下小说概念和世界观，设计修炼体系。\n\n小说概念:\n- 标题: {title}\n- 类型: {genre}\n- 核心创意: {core_idea}\n\n世界观设定:\n{setting}\n\n请设计:\n1. 修炼体系描述 (power_system) - 力量等级划分及其核心逻辑\n2. 修炼境界列表 (cultivation_realms) - 每境包含 name, description, level\n\n注意：体系设计要新颖独特，与世界观相契合。",
@@ -19,6 +19,6 @@
     "script_adapter_task": "你是顶尖的视觉艺术家和分镜编剧。请将小说章节《{title}》的文本片段{part_desc}拆分为极具画面感的【分镜脚本】。\n\n【角色视觉参考】:\n{char_info}\n\n【创作要求】:\n1. 数量限制：此片段生成 5-10 个分镜行。\n2. visual_prompt 必须是详细的英文，请按此结构撰写：\n   (Subject: 人物及姿态), (Action: 正在发生的动作), (Setting: 环境细节), (Lighting: 光影效果, 如 cinematic lighting, golden hour), (Composition: 构图方式, 如 rule of thirds, low angle), (Mood: 氛围描述)。\n3. 视觉质量：必须包含材质细节（如 skin texture, metallic shine）、环境特效（如 floating particles, mist）以及电影感描述。\n4. 角色一致性：请在每个涉及角色的分镜中，根据【角色视觉参考】重复提及角色的关键外貌特征。\n5. 镜头运动：在 motion_prompt 中精确描述摄像机如何移动，以增强动态感。\n6. 编号提示：此片段的起始场景编号建议从 SC_{start_no:03d} 开始。\n\n【小说文本片段】:\n{content}",
     "scene_extraction_task": "请分析以下小说章节，提取{num_scenes}个分镜。\n\n章节标题: {title}\n章节内容:\n{content}\n\n每个分镜需要包含:\n1. scene_number: 场景编号\n2. description: 场景描述\n3. shot_type: 镜头类型 (wide/medium/close-up/extreme close-up)\n4. camera_movement: 镜头运动 (static/pan/tilt/dolly/crane)\n5. composition: 构图 (centered/rule of thirds/leading lines)\n6. lighting: 光线 (natural/dramatic/soft)\n7. mood: 氛围 (tense/calm/dark/bright 等)\n8. key_elements: 关键元素列表\n9. characters_present: 出现的角色列表\n10. setting: 具体场景地点",
     "translation_task": "Translate the following Chinese scene description to English for AI image generation.\nKeep it concise but detailed enough for image generation.\n\nScene: {description}\nSetting: {setting}\nMood: {mood}\n\nOutput ONLY the translated English text.",
-    "character_portrait_template": "portrait of {name}, {appearance}, high quality, detailed face, studio lighting, 8k"
+    "character_portrait_template": "portrait of {name}, {appearance}, high quality, detailed face"
   }
 }
