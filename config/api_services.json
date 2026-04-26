@@ -11,14 +11,14 @@
       "type": "nvidia_nim",
       "base_url": "https://integrate.api.nvidia.com/v1",
       "api_key": "${NVIDIA_NIM_API_KEY}",
-      "model": "nvidia/nemotron-3-super-120b-a12b",
+      "model": "openai/gpt-oss-120b",
       "timeout_seconds": 300,
       "max_retries": 3
     },
     "image": {
       "type": "comfyui",
       "base_url": "http://localhost:8188",
-      "default_workflow": "t2i_z_image_turbo",
+      "default_workflow": "text_to_image_zimage_api",
       "timeout_seconds": 120,
       "client_id": "novel-video-pipeline",
       "default_model": "Z-image-turbo",
@@ -30,7 +30,7 @@
     "video": {
       "type": "comfyui",
       "base_url": "http://localhost:8188",
-      "default_workflow": "i2v_wan22",
+      "default_workflow": "video_wan2_2_14B_i2v_api",
       "timeout_seconds": 600,
       "client_id": "novel-video-pipeline",
       "default_model": "wan22_i2v",
@@ -69,7 +69,7 @@
     "bgm": {
       "type": "comfyui",
       "base_url": "http://localhost:8188",
-      "default_workflow": "bgm_ace_step",
+      "default_workflow": "audio_ace_step_1_5_split_4b_api",
       "timeout_seconds": 300,
       "client_id": "novel-video-pipeline"
     }

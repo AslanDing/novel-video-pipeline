@@ -1,0 +1,190 @@
+{
+  "_comment": "ComfyUI Wan2.2 I2V Workflow - 使用 WanImageToVideo + 双阶段KSampler",
+  "_note": "参考 video_wan2_2_14B_i2v.json，重写以支持API调用",
+  "_meta": {
+    "description": "Wan2.2 图生视频，基于输入图像生成视频",
+    "default_size": {"width": 640, "height": 480},
+    "default_frames": 81,
+    "default_fps": 24
+  },
+  "1": {
+    "inputs": {
+      "image": "input.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "2": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP (text encoder)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load Wan VAE"
+    }
+  },
+  "4": {
+    "inputs": {
+      "unet_name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load UNET (high noise)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "unet_name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load UNET (low noise)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "model": ["4", 0],
+      "shift": 5.0
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "Model Sampling (high noise)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model": ["5", 0],
+      "shift": 5.0
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "Model Sampling (low noise)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "clip": ["2", 0],
+      "text": "The character stands still, eyes full of determination. Camera slowly circles around the character."
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (positive)"
+    }
+  },
+  "9": {
+    "inputs": {
+      "clip": ["2", 0],
+      "text": "色调艳丽，过曝，静态，细节模糊，字幕，风格，作品，画作，画面，静止，最差质量，低质量，丑陋，残缺，畸形的肢体，手指融合，静止不动的画面"
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (negative)"
+    }
+  },
+  "10": {
+    "inputs": {
+      "positive": ["8", 0],
+      "negative": ["9", 0],
+      "vae": ["3", 0],
+      "start_image": ["1", 0],
+      "width": 640,
+      "height": 480,
+      "length": 81,
+      "batch_size": 1
+    },
+    "class_type": "WanImageToVideo",
+    "_meta": {
+      "title": "WanImageToVideo (I2V)"
+    }
+  },
+  "11": {
+    "inputs": {
+      "model": ["6", 0],
+      "positive": ["10", 0],
+      "negative": ["10", 1],
+      "latent_image": ["10", 2],
+      "add_noise": "enable",
+      "noise_seed": 0,
+      "steps": 4,
+      "cfg": 3.5,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 0,
+      "end_at_step": 2,
+      "return_with_leftover_noise": "enable"
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (high noise stage)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "model": ["7", 0],
+      "positive": ["11", 0],
+      "negative": ["11", 1],
+      "latent_image": ["11", 0],
+      "add_noise": "disable",
+      "noise_seed": 0,
+      "steps": 4,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 2,
+      "end_at_step": 4,
+      "return_with_leftover_noise": "enable"
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (low noise stage)"
+    }
+  },
+  "13": {
+    "inputs": {
+      "samples": ["12", 0],
+      "vae": ["3", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "14": {
+    "inputs": {
+      "images": ["13", 0],
+      "fps": 24
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "15": {
+    "inputs": {
+      "video": ["14", 0],
+      "filename_prefix": "novel_video",
+      "format": "mp4",
+      "codec": "h264"
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}

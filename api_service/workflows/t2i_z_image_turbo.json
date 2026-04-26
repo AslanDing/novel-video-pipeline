@@ -1,0 +1,86 @@
+{
+  "_comment": "ComfyUI 文生图 Workflow - Z-Image-Turbo (640x480)",
+  "_note": "Z-Image-Turbo 图像生成workflow，默认尺寸640x480",
+  "_meta": {
+    "description": "用于小说视频的图像生成，采用Z-Image-Turbo模型",
+    "default_size": {"width": 640, "height": 480}
+  },
+  "1": {
+    "inputs": {
+      "ckpt_name": "v1-5-pruned-emaonly-fp16.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Z-Image-Turbo (loader)"
+    }
+  },
+  "2": {
+    "inputs": {
+      "text": "masterpiece, best quality, highly detailed, cinematic lighting",
+      "clip": ["1", 1]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (positive)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": "blurry, low quality, bad anatomy, worst quality, low resolution",
+      "clip": ["1", 1]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (negative)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "width": 640,
+      "height": 480,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image (latent)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "seed": 42,
+      "steps": 20,
+      "cfg": 7.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["1", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "latent_image": ["4", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler (sampler)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "7": {
+    "inputs": {
+      "filename_prefix": "novel_img",
+      "images": ["6", 0]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

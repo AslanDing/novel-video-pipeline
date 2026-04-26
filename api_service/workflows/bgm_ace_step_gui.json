@@ -1,0 +1,280 @@
+{
+  "id": "bgm-ace-step-gui",
+  "last_node_id": 110,
+  "last_link_id": 270,
+  "nodes": [
+    {
+      "id": 101,
+      "type": "MarkdownNote",
+      "pos": [-730, -830],
+      "size": [520, 885],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": ["## ACE-Step 1.5 BGM Workflow\n\n**Models**:\n- UNET: acestep_v1.5_turbo.safetensors\n- VAE: ace_1.5_vae.safetensors\n- CLIP: qwen_0.6b_ace15 + qwen_4b_ace15\n\n**Parameters**:\n- Duration: 30-120 seconds\n- BPM: 70-200\n- Language: en/zh\n- Keyscale: C major, C minor, etc."],
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 104,
+      "type": "UNETLoader",
+      "pos": [-170, -790],
+      "size": [380, 83],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "slot_index": 0, "links": [260]}
+      ],
+      "properties": {"Node name for S&R": "UNETLoader"},
+      "widgets_values": ["acestep_v1.5_turbo.safetensors", "default"]
+    },
+    {
+      "id": 105,
+      "type": "DualCLIPLoader",
+      "pos": [-170, -640],
+      "size": [380, 152],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "CLIP", "type": "CLIP", "slot_index": 0, "links": [261]}
+      ],
+      "properties": {"Node name for S&R": "DualCLIPLoader"},
+      "widgets_values": ["qwen_0.6b_ace15.safetensors", "qwen_4b_ace15.safetensors", "ace", "default"]
+    },
+    {
+      "id": 106,
+      "type": "VAELoader",
+      "pos": [-180, -450],
+      "size": [380, 83],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "VAE", "type": "VAE", "slot_index": 0, "links": [262]}
+      ],
+      "properties": {"Node name for S&R": "VAELoader"},
+      "widgets_values": ["ace_1.5_vae.safetensors"]
+    },
+    {
+      "id": 99,
+      "type": "PrimitiveNode",
+      "pos": [-120, -300],
+      "size": [280, 82],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "FLOAT", "type": "FLOAT", "links": [250, 251]}
+      ],
+      "properties": {"Run widget replace on values": false},
+      "widgets_values": [30, "fixed"]
+    },
+    {
+      "id": 102,
+      "type": "PrimitiveNode",
+      "pos": [-130, -120],
+      "size": [270, 82],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "INT", "type": "INT", "links": [257, 258]}
+      ],
+      "properties": {"Run widget replace on values": false},
+      "widgets_values": [42, "fixed"]
+    },
+    {
+      "id": 98,
+      "type": "EmptyAceStep1.5LatentAudio",
+      "pos": [-150, 10],
+      "size": [315, 112],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {"name": "seconds", "type": "FLOAT", "link": 250},
+        {"name": "batch_size", "type": "INT", "link": null}
+      ],
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "slot_index": 0, "links": [249]}
+      ],
+      "properties": {"Node name for S&R": "EmptyAceStep1.5LatentAudio"},
+      "widgets_values": [30, 1]
+    },
+    {
+      "id": 94,
+      "type": "TextEncodeAceStepAudio1.5",
+      "pos": [270, -790],
+      "size": [612, 680],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 261},
+        {"name": "tags", "type": "STRING", "widget": {"name": "tags"}, "link": null},
+        {"name": "lyrics", "type": "STRING", "widget": {"name": "lyrics"}, "link": null},
+        {"name": "seed", "type": "INT", "widget": {"name": "seed"}, "link": 257},
+        {"name": "bpm", "type": "INT", "widget": {"name": "bpm"}, "link": null},
+        {"name": "duration", "type": "FLOAT", "widget": {"name": "duration"}, "link": 251},
+        {"name": "timesignature", "type": "COMBO", "widget": {"name": "timesignature"}, "link": null},
+        {"name": "language", "type": "COMBO", "widget": {"name": "language"}, "link": null},
+        {"name": "keyscale", "type": "COMBO", "widget": {"name": "keyscale"}, "link": null},
+        {"name": "generate_audio_codes", "type": "BOOLEAN", "widget": {"name": "generate_audio_codes"}, "link": null},
+        {"name": "cfg_scale", "type": "FLOAT", "widget": {"name": "cfg_scale"}, "link": null},
+        {"name": "temperature", "type": "FLOAT", "widget": {"name": "temperature"}, "link": null},
+        {"name": "top_p", "type": "FLOAT", "widget": {"name": "top_p"}, "link": null},
+        {"name": "top_k", "type": "INT", "widget": {"name": "top_k"}, "link": null},
+        {"name": "min_p", "type": "FLOAT", "widget": {"name": "min_p"}, "link": null}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "slot_index": 0, "links": [254, 255]}
+      ],
+      "properties": {"Node name for S&R": "BGM Tags Prompt"},
+      "widgets_values": [
+        "Epic: A powerful, cinematic orchestral track with dramatic buildups and emotional crescendos.",
+        "",
+        42,
+        "fixed",
+        120,
+        30,
+        "4",
+        "en",
+        "C minor",
+        true,
+        2,
+        0.85,
+        0.9,
+        0,
+        0
+      ]
+    },
+    {
+      "id": 47,
+      "type": "ConditioningZeroOut",
+      "pos": [670, 50],
+      "size": [225, 48],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {"name": "conditioning", "type": "CONDITIONING", "link": 255}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "slot_index": 0, "links": [119]}
+      ],
+      "properties": {"Node name for S&R": "ConditioningZeroOut"},
+      "widgets_values": []
+    },
+    {
+      "id": 78,
+      "type": "ModelSamplingAuraFlow",
+      "pos": [930, -810],
+      "size": [330, 80],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 260},
+        {"name": "shift", "type": "FLOAT", "widget": {"name": "shift"}, "link": null}
+      ],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "slot_index": 0, "links": [175]}
+      ],
+      "properties": {"Node name for S&R": "ModelSamplingAuraFlow"},
+      "widgets_values": [3.0]
+    },
+    {
+      "id": 3,
+      "type": "KSampler",
+      "pos": [930, -680],
+      "size": [330, 320],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 175},
+        {"name": "positive", "type": "CONDITIONING", "link": 254},
+        {"name": "negative", "type": "CONDITIONING", "link": 119},
+        {"name": "latent_image", "type": "LATENT", "link": 249},
+        {"name": "seed", "type": "INT", "widget": {"name": "seed"}, "link": 258},
+        {"name": "steps", "type": "INT", "widget": {"name": "steps"}, "link": null},
+        {"name": "cfg", "type": "FLOAT", "widget": {"name": "cfg"}, "link": null},
+        {"name": "sampler_name", "type": "COMBO", "widget": {"name": "sampler_name"}, "link": null},
+        {"name": "scheduler", "type": "COMBO", "widget": {"name": "scheduler"}, "link": null},
+        {"name": "denoise", "type": "FLOAT", "widget": {"name": "denoise"}, "link": null}
+      ],
+      "outputs": [
+        {"name": "LATENT", "type": "LATENT", "slot_index": 0, "links": [256]}
+      ],
+      "properties": {"Node name for S&R": "KSampler"},
+      "widgets_values": [42, "fixed", 8, 1, "euler", "simple", 1]
+    },
+    {
+      "id": 18,
+      "type": "VAEDecodeAudio",
+      "pos": [1280, -800],
+      "size": [225, 72],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 256},
+        {"name": "vae", "type": "VAE", "link": 262}
+      ],
+      "outputs": [
+        {"name": "AUDIO", "type": "AUDIO", "slot_index": 0, "links": [263]}
+      ],
+      "properties": {"Node name for S&R": "VAEDecodeAudio"},
+      "widgets_values": []
+    },
+    {
+      "id": 107,
+      "type": "SaveAudioMP3",
+      "pos": [1280, -670],
+      "size": [700, 147],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {"name": "audio", "type": "AUDIO", "link": 263}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "SaveAudioMP3"},
+      "widgets_values": ["audio/bgm", "V0"]
+    }
+  ],
+  "links": [
+    [119, 47, 0, 3, 2, "CONDITIONING"],
+    [175, 78, 0, 3, 0, "MODEL"],
+    [249, 98, 0, 3, 3, "LATENT"],
+    [250, 99, 0, 98, 0, "FLOAT"],
+    [251, 99, 0, 94, 5, "FLOAT"],
+    [254, 94, 0, 3, 1, "CONDITIONING"],
+    [255, 94, 0, 47, 0, "CONDITIONING"],
+    [256, 3, 0, 18, 0, "LATENT"],
+    [257, 102, 0, 94, 3, "INT"],
+    [258, 102, 0, 3, 4, "INT"],
+    [260, 104, 0, 78, 0, "MODEL"],
+    [261, 105, 0, 94, 0, "CLIP"],
+    [262, 106, 0, 18, 1, "VAE"],
+    [263, 18, 0, 107, 0, "AUDIO"]
+  ],
+  "groups": [
+    {"id": 1, "title": "Step 1 - Load Models", "bounding": [-180, -860, 405, 462], "color": "#3f789e"},
+    {"id": 2, "title": "Step 2 - Duration", "bounding": [-180, -370, 400, 170], "color": "#3f789e"},
+    {"id": 3, "title": "Step 3 - Prompt", "bounding": [260, -860, 640, 960], "color": "#3f789e"}
+  ],
+  "config": {},
+  "extra": {"workflowRendererVersion": "LG"},
+  "version": 0.4
+}

@@ -1,0 +1,59 @@
+{
+  "_comment": "ComfyUI 视频合成 Workflow - 完整合成（图像+音频→视频）",
+  "_note": "将图像转换为视频 latent，解码为帧序列，然后与音频合成",
+  "_meta": {
+    "description": "完整视频合成：图像→Video Latent→解码→与音频合并→输出视频"
+  },
+  "1": {
+    "inputs": {
+      "image": "input.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Input Image"
+    }
+  },
+  "2": {
+    "inputs": {
+      "vae_name": "wan2.2_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "3": {
+    "inputs": {
+      "width": 640,
+      "height": 480,
+      "length": 81,
+      "batch_size": 1,
+      "vae": ["2", 0]
+    },
+    "class_type": "Wan22ImageToVideoLatent",
+    "_meta": {
+      "title": "I2V Latent Generation"
+    }
+  },
+  "4": {
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["2", 0]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "5": {
+    "inputs": {
+      "fps": 24,
+      "images": ["4", 0]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "_comment": "ComfyUI 图生视频 Workflow 模板 (WanVideo I2V 骨架)",
+  "_note": "本文件是占位模板。实际使用时从 ComfyUI 导出真实 WanVideo I2V workflow 并替换此文件",
+  "1": {
+    "inputs": {
+      "image": "input.png",
+      "upload": "image"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image (load image)"
+    }
+  },
+  "2": {
+    "inputs": {
+      "ckpt_name": "wan_video_i2v.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load WanVideo Model (loader)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": "slow zoom in, cinematic lighting",
+      "clip": ["2", 1]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive Prompt (positive)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "text": "blurry, shaky, low quality",
+      "clip": ["2", 1]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative Prompt (negative)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "seed": 42,
+      "steps": 20,
+      "cfg": 7.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": ["2", 0],
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "image": ["1", 0],
+      "num_frames": 81
+    },
+    "class_type": "WanVideoSampler",
+    "_meta": {
+      "title": "WanVideo Sampler (sampler)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "frame_rate": 24,
+      "loop_count": 0,
+      "filename_prefix": "novel_vid",
+      "format": "video/h264-mp4",
+      "images": ["5", 0]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}
