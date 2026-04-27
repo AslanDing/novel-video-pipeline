@@ -1,4 +1,4 @@
-# AI Novel Video Pipeline (AI 爽文视频生成工作流)
+# AI Novel Video Pipeline (AI 小说视频生成工作流)
 
 ## 📖 项目简介
 本项目是一个自动化的 AI 小说推文视频生成 Pipeline。通过结合大型语言模型（LLM）、ComfyUI（图像与视频生成）、Edge TTS（语音合成）以及 ACE-Step（背景音乐生成），实现从“小说文本生成”到“图文音视频合成”的端到端全自动工作流。
